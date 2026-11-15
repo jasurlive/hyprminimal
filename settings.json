@@ -6,9 +6,9 @@
     "position": "top",
     "height": 45,
     "opacity": 0.25,
-    "font_size": 16,
+    "font_size": 15,
     "icon_size": 20,
-    "clock_size": 18,
+    "clock_size": 20,
     "font_weight": 500,
     "clock_24h": true,
     "widgets": {

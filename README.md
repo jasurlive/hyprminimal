@@ -9,7 +9,7 @@ It copies your **active** Noctalia setup: Tokyo Night Moon colours, square panel
 | Notifications (top right) | swaync | `swaync/` |
 | Control center (Super+S, or click clock/bell): media, Wi-Fi, Bluetooth, Caffeine, Night Light, DND, System, Session | swaync | `swaync/` |
 | Volume / brightness OSD | swayosd | `swayosd/` |
-| Launcher (Super+R) | rofi | `rofi/theme.rasi` |
+| Launcher (Super+R); `rm NAME` + Enter uninstalls an app (pacman -Rns + cache clean, asks first) | rofi | `rofi/theme.rasi`, `scripts/launcher.py`, `scripts/remove-app.sh` |
 | Session panel (Lock, Log Out, Lock & Suspend, Reboot, Shut Down, keys 1-5) | rofi | `rofi/menu.rasi`, `scripts/session.sh` |
 | Lock screen (Super+L), lock before suspend | hyprlock + hypridle | `hyprlock/`, `hypridle/` |
 | Wallpaper | swaybg | Settings → Wallpaper |
@@ -23,7 +23,7 @@ It copies your **active** Noctalia setup: Tokyo Night Moon colours, square panel
 `bin/hyprminimal-settings` (Super+I) is the one place to change hyprminimal. Every change is saved to
 `settings.json`, rendered into `.generated/` and applied live. There is one theme, Tokyo Night Moon.
 
-Super+H opens it on **Keybinds**, which works on Noctalia too. Each edit to `keybind.lua` is backed up to
+Super+H opens it on **Keybinds**. Each edit to `keybind.lua` is backed up to
 `~/.config/hypr/.pre-hyprminimal-backup/`, Hyprland is reloaded, and the change is undone if Hyprland reports
 an error. Removed shortcuts are commented out, not deleted. Shortcuts defined in a loop (Super+1…9) are
 shown but must be edited in the file.
@@ -41,18 +41,18 @@ every frame). CPU/RAM widgets update every 5 s.
 
 ```bash
 sudo pacman -S --needed $(grep -v '^#' ~/www/hyprminimal/packages.txt)
-~/www/hyprminimal/bin/hyprminimal start     # Noctalia stops, hyprminimal starts
-~/www/hyprminimal/bin/hyprminimal stop      # back to Noctalia
+~/www/hyprminimal/bin/hyprminimal start
+~/www/hyprminimal/bin/hyprminimal stop
 ~/www/hyprminimal/bin/hyprminimal restart   # after editing a config
 ~/www/hyprminimal/bin/hyprminimal status
 ```
 
-Logs: `$XDG_RUNTIME_DIR/hyprminimal/*.log`. hyprminimal starts at login (falls back to Noctalia if it can't).
+Logs: `$XDG_RUNTIME_DIR/hyprminimal/*.log`. hyprminimal starts at login.
 
 Settings reference, crash recovery and troubleshooting: [GUIDE.md](GUIDE.md).
 
 ## Changes outside this folder
 
 Originals are backed up in `~/.config/hypr/.pre-hyprminimal-backup/`.
-- `keybind.lua`, `Scripts/accel-step.sh`: call `bin/hyprminimal-msg`, which forwards to Noctalia unless hyprminimal is active.
+- `keybind.lua`, `Scripts/accel-step.sh`: call `bin/hyprminimal-msg`.
 - `hyprland.lua`: last line loads `hypr/layerrules.lua` (blur).

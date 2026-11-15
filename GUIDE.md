@@ -18,11 +18,11 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 
 | Command | What it does |
 |---|---|
-| `hyprminimal start` | Stops Noctalia and starts hyprminimal (bar, notifications, OSD, wallpaper, idle). It refuses to start if a package from `packages.txt` is missing and prints the `pacman` line to install it. |
-| `hyprminimal stop` | Stops hyprminimal and starts Noctalia, for this session only. |
+| `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, wallpaper, idle). It refuses to start if a package from `packages.txt` is missing and prints the `pacman` line to install it. |
+| `hyprminimal stop` | Stops hyprminimal, for this session only. |
 | `hyprminimal restart` | Restarts everything, including the settings process. Run it after editing any file in this folder by hand. |
 | `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync`, `swayosd-server`, `swaybg` or `hypridle`. |
-| `hyprminimal status` | Shows the mode (hyprminimal or Noctalia) and which components are running. |
+| `hyprminimal status` | Shows whether hyprminimal is active and which components are running. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
 | `sudo hyprminimal-autologin enable\|disable\|status` | Boots straight to the hyprminimal lock screen, which then acts as the login screen (greetd). |
 | `sudo hyprminimal-greeter install\|uninstall\|status` | The login screen after you log out: lock-screen look with user selection (Up/Down or the arrows). Re-run install after changing wallpaper or monitors. |
@@ -34,17 +34,14 @@ All of these are in `~/www/hyprminimal/bin/`.
 `~/.config/hypr/startup.lua` starts hyprminimal at every login:
 
 ```lua
-[[sh -c '"$HOME/www/hyprminimal/bin/hyprminimal" start || exec noctalia']],
+[[sh -c '"$HOME/www/hyprminimal/bin/hyprminimal" start']],
 ```
-
-If hyprminimal can't start, Noctalia starts instead, so you never end up without a shell.
-To go back to Noctalia permanently, see [Back to Noctalia](#back-to-noctalia-for-good).
 
 ### Keys
 
 | Key | Action |
 |---|---|
-| Super+R | Launcher. Apps are numbered and the most recently used come first. |
+| Super+R | Launcher. Apps are numbered and the most recently used come first. Type `rm NAME` (or `rm NUMBER`) + Enter to uninstall that app: a terminal shows what will go and asks first, then runs `pacman -Rns` (app, unneeded dependencies, its /etc config), `pacman -Sc` (cache) and offers to delete its folders in ~/.config, ~/.local/share, ~/.cache. Flatpaks use `flatpak uninstall --delete-data`. |
 | Super+S | Control center: media, Wi-Fi, Bluetooth, Caffeine, Night Light, DND, System, Session |
 | Super+I | Settings |
 | Super+H | Keybinds editor |
@@ -151,8 +148,9 @@ or pick one with the folder button) or a shell line (`sleep 5 && discord`).
 Each row has a switch (run at login or not), an editable command (press Enter or ✓ to save),
 ▶ to run it now, and a trash button to remove it.
 
-`hyprminimal start` runs the enabled ones **once per login**, from your home folder, after the bar is up.
-`hyprminimal restart`, or switching to Noctalia and back, never starts them a second time.
+`hyprminimal start` runs the enabled ones **once per login** (per Hyprland session, so also after a
+log out and log in), from your home folder, after the bar is up. `hyprminimal restart`, or `stop` + `start`,
+never starts them a second time in the same session.
 Output goes to `$XDG_RUNTIME_DIR/hyprminimal/startup.log`.
 
 ### Network
@@ -182,7 +180,7 @@ Output goes to `$XDG_RUNTIME_DIR/hyprminimal/startup.log`.
 See [section 3](#3-keybinds).
 
 ### System
-- **Running shell**: shows whether hyprminimal or Noctalia is running, with buttons to switch shells or restart hyprminimal.
+- **Restart hyprminimal**: reloads bar, notifications, OSD and idle (starts it if it isn't running).
 - **Shortcuts to other tools**:
 
   | Button | Opens |
@@ -201,7 +199,7 @@ Shows the version of each package and the paths of `settings.json` and `keybind.
 
 ## 3. Keybinds
 
-Super+H opens the editor. It works under both hyprminimal and Noctalia. From it you can search,
+Super+H opens the editor. From it you can search,
 edit, record a new key combo, add shortcuts and remove them.
 
 Every save goes through these steps:
@@ -213,8 +211,7 @@ Some things the editor doesn't do:
 - Removed shortcuts are commented out, not deleted, so you can bring them back by uncommenting them.
 - Shortcuts defined in a loop, such as Super+1…9, are listed but have to be edited in the file.
 
-Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`. It sends the action to hyprminimal when
-hyprminimal is active and to Noctalia otherwise, so the same keys work in both shells.
+Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the action in hyprminimal.
 
 | Action | Meaning |
 |---|---|
@@ -283,7 +280,7 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 ### Problems by symptom
 
 **No bar or shell at all after login**
-- Noctalia should have taken over automatically. If it didn't, run `hyprminimal start` from a terminal and read its output. If it says packages are missing, install them:
+- Run `hyprminimal start` from a terminal and read its output. If it says packages are missing, install them:
   `sudo pacman -S --needed $(grep -v '^#' ~/www/hyprminimal/packages.txt)`
 - Check that `startup.lua` still has the hyprminimal line (see [section 1](#hyprminimal-as-the-default-shell)).
 - No terminal? Press Super+Enter, or whatever your terminal key is. If even that fails, switch to a TTY with **Ctrl+Alt+F2** and run `hyprminimal start` there, or fix the files from it.
@@ -382,19 +379,13 @@ rm -rf .generated
 hyprminimal restart                        # everything is rebuilt from the defaults
 ```
 
-### Back to Noctalia for the current session only
-Run `hyprminimal stop`, or use Settings → System → Running shell.
-
-### Back to Noctalia for good
-1. In `~/.config/hypr/startup.lua`, replace the hyprminimal line with `"noctalia",`. You can also restore the file instead: `cp ~/.config/hypr/.pre-hyprminimal-backup/startup.lua ~/.config/hypr/startup.lua` (but check it first, because that copy may predate other edits).
+### Uninstall hyprminimal completely
+1. In `~/.config/hypr/startup.lua`, remove the hyprminimal line (or restore `.pre-hyprminimal-backup/startup.lua`, after checking it).
 2. If you enabled autologin, run `sudo ~/www/hyprminimal/bin/hyprminimal-autologin disable`.
 3. Run `hyprminimal stop`.
-
-### Uninstall hyprminimal completely
-Do everything in "Back to Noctalia for good", then:
-1. Remove the last line of `~/.config/hypr/hyprland.lua` (the one that loads the hyprminimal blur rules).
-2. In `keybind.lua`, point `SHELLMSG` back at Noctalia, or restore the file from `.pre-hyprminimal-backup/`. Until you do, `hyprminimal-msg` keeps forwarding to Noctalia, so the keys still work while the folder exists.
-3. Delete the folders:
+4. Remove the last line of `~/.config/hypr/hyprland.lua` (the one that loads the hyprminimal blur rules).
+5. In `keybind.lua`, point `SHELLMSG` at your new shell, or restore the file from `.pre-hyprminimal-backup/`.
+6. Delete the folders:
    ```bash
    rm -rf ~/www/hyprminimal ~/.cache/hyprminimal ~/.local/state/hyprminimal
    ```

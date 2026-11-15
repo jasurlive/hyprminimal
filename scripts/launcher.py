@@ -3,6 +3,7 @@
 
 Apps are numbered alphabetically (numbers stay the same between runs). The 5 apps you
 launched last are pinned on top as well, newest first. Type a number + Enter to launch that app, or search by name.
+"rm NAME" (or "rm NUMBER") + Enter uninstalls the app instead, in a terminal that asks first (scripts/remove-app.sh).
 """
 import os
 import subprocess
@@ -38,7 +39,7 @@ def row(num, app, width, tag=""):
     icon = app.get_icon()
     if icon:
         opts.append(f"icon\x1f{icon.to_string()}")
-    words = [f"{num} {name}"]
+    words = [f"{num} {name}", "rm"]   # "rm": typing "rm fire" keeps Firefox in the list (uninstall)
     if hasattr(app, "get_keywords"):   # .desktop apps: also find them by generic name / keywords ("browser")
         words += filter(None, [app.get_generic_name(), *(app.get_keywords() or [])])
     search = " ".join(words).replace("\n", " ").replace("\0", "").replace("\x1f", "")
@@ -71,11 +72,25 @@ def main():
         return
     idx, _, typed = res.stdout.rstrip("\n").partition("\t")
     typed = typed.strip()
+    remove = typed == "rm" or typed.startswith("rm ")
+    if remove:
+        typed = typed[2:].strip()
+        if not typed:          # bare "rm" + Enter: no app named, never guess which one to remove
+            return
     if typed.isdigit() and 1 <= int(typed) <= len(lst):   # "12" + Enter = app number 12
         app = lst[int(typed) - 1]
     elif idx.lstrip("-").isdigit() and 0 <= int(idx) < len(order):
         app = lst[order[int(idx)]]
     else:
+        return
+
+    if remove:
+        path = app.get_filename() if hasattr(app, "get_filename") else None
+        if path:
+            subprocess.Popen(["kitty", "--class", "hyprminimal-remove", "--title", f"Remove {app.get_display_name()}",
+                              str(DIR / "scripts/remove-app.sh"), path, app.get_display_name()],
+                             start_new_session=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return
 
     STATE.mkdir(parents=True, exist_ok=True)

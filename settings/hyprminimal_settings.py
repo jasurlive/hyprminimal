@@ -687,8 +687,8 @@ def run_gui(start_page):
             content_view = Adw.ToolbarView()
             self.content_head = Adw.HeaderBar(show_end_title_buttons=False, show_start_title_buttons=False)
             content_view.add_top_bar(self.content_head)
-            self.banner = Adw.Banner(title="You're on Noctalia. These settings take effect when hyprminimal runs.",
-                                     button_label="Switch to hyprminimal")
+            self.banner = Adw.Banner(title="hyprminimal isn't running. These settings take effect once it starts.",
+                                     button_label="Start hyprminimal")
             self.banner.connect("button-clicked", lambda *_: self._switch_shell("start"))
             content_view.add_top_bar(self.banner)
             # red banner: the part of hyprminimal this page configures failed (see bin/hyprminimal watchdog)
@@ -721,7 +721,7 @@ def run_gui(start_page):
                 ("keybinds", "Keybinds", "input-keyboard-symbolic", self.page_keybinds,
                  "keybinds shortcuts keys hotkeys"),
                 ("system", "System", "preferences-system-symbolic", self.page_system,
-                 "audio display network bluetooth appearance gtk shell noctalia restart"),
+                 "audio display network bluetooth appearance gtk shell restart"),
                 ("about", "About", "help-about-symbolic", self.page_about, "about version"),
             ]:
                 self.builders[pid] = builder          # built on first visit (lazy)
@@ -1237,13 +1237,8 @@ def run_gui(start_page):
         def page_system(self):
             p = Adw.PreferencesPage()
             g = self.group(p, "Shell")
-            mode = "hyprminimal" if hyprminimal_active() else "Noctalia"
-            self.mode_row = Adw.ActionRow(title="Running shell", subtitle=mode)
-            g.add(self.mode_row)
             self.button_row(g, "Restart hyprminimal", "Reload bar, notifications, OSD and idle", "Restart",
-                            lambda: self._switch_shell("restart"), style="pill")
-            self.button_row(g, "Switch shell", "Go back to Noctalia, or start hyprminimal", "Switch",
-                            lambda: self._switch_shell("stop" if hyprminimal_active() else "start"), style="pill")
+                            lambda: self._switch_shell("restart" if hyprminimal_active() else "start"), style="pill")
             g2 = self.group(p, "System settings")
             for title, sub, cmd in [
                 ("Audio", "Output, input and app volumes", "pavucontrol"),
@@ -1260,18 +1255,15 @@ def run_gui(start_page):
                 sh(str(DIR / "bin/hyprminimal"), action)
                 GLib.idle_add(self._after_switch)
             threading.Thread(target=run, daemon=True).start()
-            self.toast({"start": "Starting hyprminimal…", "stop": "Switching to Noctalia…",
-                        "restart": "Restarting hyprminimal…"}[action])
+            self.toast({"start": "Starting hyprminimal…", "restart": "Restarting hyprminimal…"}[action])
 
         def _after_switch(self):
             self._update_banner()
-            if getattr(self, "mode_row", None):
-                self.mode_row.set_subtitle("hyprminimal" if hyprminimal_active() else "Noctalia")
             return False
 
         def page_about(self):
             p = Adw.PreferencesPage()
-            g = self.group(p, "hyprminimal", "A minimal Noctalia-style shell for Hyprland, official Arch packages only.")
+            g = self.group(p, "hyprminimal", "A minimal shell for Hyprland, official Arch packages only.")
             pkgs = ("hyprland", "waybar", "swaync", "swayosd", "rofi", "hyprlock", "hypridle", "swaybg")
             vers = dict(l.split()[:2] for l in sh("pacman", "-Q", *pkgs).stdout.splitlines() if " " in l)
             for pkg in pkgs:

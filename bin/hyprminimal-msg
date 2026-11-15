@@ -1,31 +1,14 @@
 #!/usr/bin/env bash
-# Shell actions for your Hyprland keybinds. When hyprminimal is active it drives hyprminimal;
-# otherwise it forwards to Noctalia, so nothing changes while you're on Noctalia.
+# Shell actions for your Hyprland keybinds (launcher, lock, media, OSD, panels, ...).
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
 cmd=${1:-}; shift
-
-if [[ ! -e ${XDG_RUNTIME_DIR:-/tmp}/hyprminimal/active ]]; then
-  case $cmd in
-    launcher)        exec noctalia msg panel-toggle launcher ;;
-    lock)            exec noctalia msg session lock ;;
-    settings)        exec noctalia msg settings-toggle ;;
-    cheatsheet)      exec "$DIR/bin/hyprminimal-settings" --page keybinds ;;   # keybind editor works on both shells
-    control-center)  exec noctalia msg panel-toggle control-center ;;
-    media)           exec noctalia msg media "$@" ;;
-    volume)          wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ "${1#[+-]}%${1:0:1}"
-                     exec noctalia msg volume-osd ;;
-    brightness)      brightnessctl -q set "${1#[+-]}%${1:0:1}"
-                     exec noctalia msg brightness-osd "$(brightnessctl -m | cut -d, -f4 | tr -d %)" ;;
-    *)               exit 0 ;;
-  esac
-fi
 
 case $cmd in
   launcher)       pkill -x rofi || exec python3 -I "$DIR/scripts/launcher.py" ;;   # numbered, last used first
   lock)           conf="$DIR/.generated/hyprlock.conf"; [[ -f $conf ]] || conf="$DIR/hyprlock/hyprlock.conf"
                   pidof hyprlock >/dev/null || exec hyprlock -c "$conf" ;;
-  control-center) exec swaync-client -t -sw ;;
+  control-center) exec "$DIR/scripts/control-center.sh" ;;   # live info in the tiles, then toggle
   panel)          exec "$DIR/bin/hyprminimal-settings" --panel "$1" ;;   # calendar | battery | network | media
   catch)          # $1 = process name of a popup that should close on a click outside it ("" = closed)
                   [[ ${1:-} =~ ^[a-z-]*$ ]] || exit 2
@@ -45,6 +28,12 @@ case $cmd in
                   [[ -f $R/caffeine.pid ]] && kill -0 "$(cat "$R/caffeine.pid")" 2>/dev/null && echo true || echo false ;;
   nightlight)     read -r _ temp < "$DIR/.generated/nightlight" 2>/dev/null
                   pkill -x hyprsunset || setsid -f hyprsunset -t "${temp:-4000}" >/dev/null 2>&1 ;;
+  bluetooth)      # swaync toggle: $SWAYNC_TOGGLE_STATE = wanted state. bluetoothctl hangs without bluetoothd
+                  systemctl is-active -q bluetooth || exit 0
+                  [[ ${SWAYNC_TOGGLE_STATE:-} == true ]] && exec timeout 2 bluetoothctl power on >/dev/null
+                  exec timeout 2 bluetoothctl power off >/dev/null ;;
+  bluetooth-state) systemctl is-active -q bluetooth && timeout 1 bluetoothctl show 2>/dev/null | grep -q "Powered: yes" \
+                     && echo true || echo false ;;
   nightlight-state) pgrep -x hyprsunset >/dev/null && echo true || echo false ;;
   settings)       exec "$DIR/bin/hyprminimal-settings" ;;
   errors)         # bar error pill: open Settings on the page of the first failed part

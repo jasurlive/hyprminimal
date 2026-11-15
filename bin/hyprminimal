@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# hyprminimal: run the hyprminimal shell in place of Noctalia, inside the running Hyprland.
-#   hyprminimal start          stop Noctalia, start hyprminimal
-#   hyprminimal stop           stop hyprminimal, start Noctalia again
+# hyprminimal: run the hyprminimal shell inside the running Hyprland.
+#   hyprminimal start          start hyprminimal (stops a running copy first)
+#   hyprminimal stop           stop hyprminimal
 #   hyprminimal restart        restart hyprminimal (after editing configs)
 #   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server swaybg hypridle)
 #   hyprminimal wallpaper PATH show PATH as the wallpaper (used by Settings)
@@ -221,6 +221,9 @@ start_components() {
   local nl temp
   read -r nl temp < "$GEN/nightlight" 2>/dev/null
   build_helpers
+  # hyprminimal owns swaync: mask the stock user unit so D-Bus can't start a second, unstyled copy
+  # whenever a notification arrives while ours restarts (undo: systemctl --user unmask swaync.service)
+  [[ $(systemctl --user is-enabled swaync.service 2>/dev/null) == masked ]] || systemctl --user mask -q swaync.service
   # swaync first: waybar's notification module calls swaync-client (see start_one)
   start_one swaybg
   start_one swaync
@@ -239,11 +242,14 @@ Using the last working files. Check settings.json (or reopen Settings and change
   setsid -f "$DIR/bin/hyprminimal" watchdog >"$RUN/watchdog.log" 2>&1 </dev/null
 }
 
-# Settings → Startup: user commands, once per login ($RUN lives in XDG_RUNTIME_DIR, cleared at logout),
-# so hyprminimal restart / stop+start never launch them twice
+# Settings → Startup: user commands, once per Hyprland session, so hyprminimal restart / stop+start never
+# launch them twice. The marker holds the Hyprland instance it ran in: XDG_RUNTIME_DIR is NOT cleared on
+# logout while the user's systemd manager lives on (quick re-login), so a bare "done" file would survive
+# a log out / log in and skip the commands.
 run_startup() {
-  [[ -e $RUN/startup.done ]] && return
-  touch "$RUN/startup.done"
+  local sig=${HYPRLAND_INSTANCE_SIGNATURE:-no-hyprland}
+  [[ $(cat "$RUN/startup.done" 2>/dev/null) == "$sig" ]] && return
+  printf '%s\n' "$sig" >"$RUN/startup.done"
   local cmd
   while IFS= read -r cmd; do
     [[ $cmd ]] || continue
@@ -264,18 +270,16 @@ case ${1:-} in
       exit 1
     fi
     mkdir -p "$RUN"; touch "$RUN/active"; rm -rf "$RUN/fallback" "$ERR"
-    pkill -x noctalia
     stop_components; start_components
     run_startup
-    echo "hyprminimal started (logs: $RUN). Back to Noctalia: hyprminimal stop"
+    echo "hyprminimal started (logs: $RUN)"
     ;;
   stop)
     rm -f "$RUN/active"
     stop_components
     gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
       --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
-    pgrep -x noctalia >/dev/null || setsid -f noctalia >/dev/null 2>&1 </dev/null
-    echo "hyprminimal stopped, Noctalia started"
+    echo "hyprminimal stopped"
     ;;
   restart)
     [[ -e $RUN/active ]] || { echo "hyprminimal is not active"; exit 1; }
@@ -298,8 +302,8 @@ case ${1:-} in
     ;;
   watchdog) watchdog ;;
   status)
-    [[ -e $RUN/active ]] && echo "mode: hyprminimal" || echo "mode: noctalia"
-    for c in noctalia "${COMPONENTS[@]}"; do
+    [[ -e $RUN/active ]] && echo "hyprminimal: active" || echo "hyprminimal: stopped"
+    for c in "${COMPONENTS[@]}"; do
       printf '  %-15s %s%s\n' "$c" "$(pgrep -x "$c" >/dev/null && echo running || echo -)" \
         "$([[ -e $RUN/fallback/$c ]] && echo ' (last working settings)')"
     done

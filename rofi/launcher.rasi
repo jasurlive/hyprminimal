@@ -8,35 +8,36 @@ configuration {
 }
 
 window {
-    /* top right like every hyprminimal popup: 8px under the bar, right edge in line with it */
-    location: north east; anchor: north east;
-    x-offset: -4px; y-offset: 8px;
-    width:    560px;
+    /* centred on screen, wide enough for long app names */
+    location: center; anchor: center;
+    x-offset: 0; y-offset: 0;
+    width:    600px;
     border:   1px; border-color: @outline;
 }
 
-mainbox  { padding: 10px; spacing: 8px; children: [ inputbar, listview ]; }
+mainbox  { padding: 14px; spacing: 10px; children: [ inputbar, listview ]; }
 
 inputbar {
-    background-color: transparent;
-    border: 0 0 1px 0; border-color: @outline;
-    padding: 8px 10px 12px 10px; spacing: 12px;
+    background-color: @surface-var;
+    border: 1px; border-color: @outline;
+    padding: 10px 14px; spacing: 12px;
     children: [ prompt, entry ];
 }
-prompt   { font: "Symbols Nerd Font 15"; text-color: @primary; vertical-align: 0.5; }   /* icon from launcher.py -p */
+prompt   { font: "Symbols Nerd Font 16"; text-color: @primary; vertical-align: 0.5; }   /* icon from launcher.py -p */
 entry    {
-    placeholder: "Search, or type a number"; placeholder-color: #737aa2;
-    border: 0; padding: 0; text-color: @on-surface-v;
+    font: "Noto Sans 13";
+    placeholder: "Search, type a number, or rm NAME to uninstall"; placeholder-color: #737aa2;
+    border: 0; padding: 0; text-color: @on-surface-v; vertical-align: 0.5;
 }
 
-listview { lines: 10; spacing: 0; scrollbar: false; fixed-height: true; cycle: true; }
+listview { lines: 8; spacing: 2px; scrollbar: false; fixed-height: true; cycle: true; }
 
-element  { padding: 7px 10px; spacing: 12px; }
+element  { padding: 8px 12px; spacing: 14px; }
 element normal.active, element alternate.active { background-color: #2c314a99; text-color: @on-surface-v; }
 element selected.normal, element selected.active {
     background-color: #7a88cf33;
     text-color:       @on-surface-v;
-    border: 0 0 0 2px; border-color: @primary;
+    border: 0 0 0 3px; border-color: @primary;
 }
-element-icon { size: 24px; }
-element-text { font: "Noto Sans 12"; }
+element-icon { size: 30px; vertical-align: 0.5; }
+element-text { font: "Noto Sans 13"; vertical-align: 0.5; }

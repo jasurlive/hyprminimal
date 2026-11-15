@@ -76,6 +76,15 @@ window.hyprminimal-catcher { background: rgba(0, 0, 0, 0.01); }   /* needs real 
 .panel switch { background: #2c314a; border: 1px solid #4b517a; }
 .panel switch:checked { background: #7a88cf; }
 .panel switch slider { background: #c0caf5; }
+.panel list.wifi-list { background: transparent; }
+.panel list.wifi-list > row { padding: 9px 10px; margin: 2px 0; border-radius: 10px; }
+.panel list.wifi-list > row:hover { background: rgba(122, 136, 207, 0.18); }
+.panel list.wifi-list > row.on { background: rgba(122, 136, 207, 0.30); }
+.panel .sig { font-family: "Symbols Nerd Font"; font-size: 19px; color: #7a88cf; }
+.panel button.scan-btn:disabled { color: #7a88cf; opacity: 1; font-family: "Noto Sans"; font-size: 16px; font-weight: 800; }
+.panel .net-name { font-size: 15px; font-weight: 600; }
+.panel .lock { font-size: 14px; }
+.panel .wifi-pw { margin-top: 8px; background: #2c314a; border: 1px solid #4b517a; border-radius: 8px; padding: 4px 10px; }
 """
 
 
@@ -165,6 +174,7 @@ def human_bytes(n):
 # --------------------------------------------------------------------------- base
 class Panel(Gtk.Window):
     width = 360
+    bottom = False        # True: anchor bottom right (opened from the control center's bottom row)
 
     def __init__(self, app, manager):
         super().__init__(application=app, decorated=False, resizable=False)
@@ -177,9 +187,10 @@ class Panel(Gtk.Window):
             LS.set_namespace(self, "hyprminimal-panel")
             LS.set_layer(self, LS.Layer.OVERLAY)
             LS.set_keyboard_mode(self, LS.KeyboardMode.ON_DEMAND)
-            LS.set_anchor(self, LS.Edge.TOP, True)
-            LS.set_margin(self, LS.Edge.TOP, POPUP_TOP)
-            LS.set_anchor(self, LS.Edge.RIGHT, True)        # every popup sits top right
+            edge = LS.Edge.BOTTOM if self.bottom else LS.Edge.TOP
+            LS.set_anchor(self, edge, True)
+            LS.set_margin(self, edge, POPUP_TOP)
+            LS.set_anchor(self, LS.Edge.RIGHT, True)        # every popup sits on the right
             LS.set_margin(self, LS.Edge.RIGHT, POPUP_RIGHT)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14, css_classes=["panel"])
         box.set_size_request(self.width, -1)
@@ -916,9 +927,209 @@ class SystemPanel(Panel):
 
 
 # --------------------------------------------------------------------------- manager
+# --------------------------------------------------------------------------- Wi-Fi networks
+def netpage():
+    """settings/network_page.py (nmcli helpers). python -I leaves this folder off sys.path."""
+    import sys
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import network_page
+    return network_page
+
+
+SIGNAL_GLYPHS = ["\U000f092f", "\U000f091f", "\U000f0922", "\U000f0925", "\U000f0928"]   # 󰤯 󰤟 󰤢 󰤥 󰤨
+
+
+class WifiPanel(Panel):
+    """Nearby Wi-Fi networks, opened by the › next to the control center's Wi-Fi tile.
+    Click a saved or open network to join it; a new secured one asks for its password inline."""
+    width = 380
+    bottom = True
+
+    def build(self, box):
+        box.add_css_class("compact")
+        head = Gtk.Box(spacing=10)
+        head.append(label("\U000f05a9", "icon-sm accent", valign=Gtk.Align.CENTER))
+        head.append(label("Wi-Fi networks", "mid", hexpand=True))
+        self.scan = Gtk.Button(label="\U000f0450", css_classes=["round", "flat-icon"], valign=Gtk.Align.CENTER,
+                               tooltip_text="Scan again")
+        self.scan.add_css_class("scan-btn")
+        self.scan.connect("clicked", lambda *_: self._load(rescan=True))
+        self._dots = None                              # animation timer while a scan runs
+        head.append(self.scan)
+        self.switch = Gtk.Switch(valign=Gtk.Align.CENTER, tooltip_text="Wi-Fi on/off")
+        self._sync = False
+        self.switch.connect("state-set", self._toggle)
+        head.append(self.switch)
+        box.append(head)
+        self.status = label("", "muted caption", wrap=True)
+        box.append(self.status)
+        self.list = Gtk.ListBox(css_classes=["wifi-list"], selection_mode=Gtk.SelectionMode.NONE)
+        self.list.connect("row-activated", self._activate)
+        box.append(Gtk.ScrolledWindow(child=self.list, hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                      propagate_natural_height=True, max_content_height=400))
+        s = Gtk.Button(label="Network settings…", css_classes=["link-btn"])
+        s.connect("clicked", lambda *_: (self.manager.close(), self.manager.app.present_page("network")))
+        box.append(s)
+        self._busy = False
+
+    # --- data (worker thread)
+    @staticmethod
+    def _scan(rescan):
+        npg = netpage()
+        nm, split = npg.nmcli, npg.split_terse
+        radio = nm("radio", "wifi")[1] == "enabled"
+        saved = {}                                     # SSID -> connection uuid
+        uuids = [f[1] for f in map(split, nm("-t", "-f", "NAME,UUID,TYPE", "connection", "show")[1].splitlines())
+                 if len(f) >= 3 and f[2] == "802-11-wireless"]
+        if uuids:
+            for block in nm("-t", "-g", "connection.uuid,802-11-wireless.ssid,802-11-wireless.mode",
+                            "connection", "show", *uuids)[1].split("\n\n"):
+                ln = (block.split("\n") + ["", "", ""])[:3]
+                if ln[0] and ln[2] != "ap":            # hotspot profiles aren't networks to join
+                    saved.setdefault(ln[1], ln[0])
+        nets = {}
+        if radio:
+            out = nm("-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list",
+                     "--rescan", "yes" if rescan else "auto", timeout=25)[1]
+            for f in map(split, out.splitlines()):
+                if len(f) < 4 or not f[1]:
+                    continue
+                n = {"ssid": f[1], "signal": int(f[2] or 0), "secure": f[3].strip() not in ("", "--"),
+                     "inuse": f[0] == "*", "uuid": saved.get(f[1])}
+                old = nets.get(n["ssid"])
+                if not old or n["inuse"] or (n["signal"] > old["signal"] and not old["inuse"]):
+                    nets[n["ssid"]] = n
+        return radio, sorted(nets.values(), key=lambda n: (not n["inuse"], -n["signal"]))
+
+    def _load(self, rescan=False):
+        if not rescan:
+            bg(lambda: self._scan(False), self._show, owner=self, key=("scan", False))
+            return
+        if self._dots:                                 # already scanning: the button is busy, ignore
+            return
+        self._scanning(True)
+        bg(lambda: self._scan(True), lambda r: (self._scanning(False), self._show(r)),
+           owner=self, key=("scan", True))
+
+    def _scanning(self, on):
+        """Scan button: animated dots (and not clickable) while a scan runs, the refresh icon after."""
+        if self._dots:
+            GLib.source_remove(self._dots)
+            self._dots = None
+        self.scan.set_sensitive(not on)
+        if not on:
+            self.scan.set_label("\U000f0450")
+            self.scan.set_tooltip_text("Scan again")
+            return
+        self.scan.set_tooltip_text("Scanning…")
+        frames = ["\u2022\u2009\u00b7\u2009\u00b7", "\u00b7\u2009\u2022\u2009\u00b7", "\u00b7\u2009\u00b7\u2009\u2022"]
+        step = [0]
+
+        def tick():
+            self.scan.set_label(frames[step[0] % 3])
+            step[0] += 1
+            return True
+        tick()
+        self._dots = GLib.timeout_add(280, tick)
+
+    def _show(self, res):
+        if res is None:
+            self.status.set_label("Couldn't read networks from NetworkManager.")
+            return
+        radio, nets = res
+        self._sync = True
+        self.switch.set_active(radio)
+        self._sync = False
+        if not self._busy:
+            self.status.set_label("" if radio and nets else ("Wi-Fi is off" if not radio else "No networks found"))
+            self.status.set_visible(bool(self.status.get_label()))
+        while (row := self.list.get_row_at_index(0)) is not None:
+            self.list.remove(row)
+        for n in nets[:15]:
+            self.list.append(self._row(n))
+        self.list.set_visible(bool(nets))
+
+    def _row(self, n):
+        row = Gtk.ListBoxRow()
+        row.net = n
+        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        top = Gtk.Box(spacing=12)
+        top.append(label(SIGNAL_GLYPHS[min(4, n["signal"] // 20)], "sig", valign=Gtk.Align.CENTER))
+        top.append(label(n["ssid"], "net-name", hexpand=True, ellipsize=Pango.EllipsizeMode.END))
+        tag = "Connected" if n["inuse"] else ("Saved" if n["uuid"] else "")
+        if tag:
+            top.append(label(tag, "muted caption", valign=Gtk.Align.CENTER))
+        if n["secure"]:
+            top.append(label("\U000f033e", "icon-sm lock", valign=Gtk.Align.CENTER))   # 󰌾
+        col.append(top)
+        if n["secure"] and not n["uuid"] and not n["inuse"]:
+            pw = Gtk.PasswordEntry(show_peek_icon=True, placeholder_text="Password, then Enter",
+                                   css_classes=["wifi-pw"])
+            pw.connect("activate", lambda e: self._connect(n, e.get_text()) if e.get_text() else None)
+            row.reveal = Gtk.Revealer(child=pw, transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN)
+            row.pw = pw
+            col.append(row.reveal)
+        if n["inuse"]:
+            row.add_css_class("on")
+        row.set_child(col)
+        return row
+
+    # --- actions
+    def _activate(self, _lb, row):
+        n = row.net
+        if n["inuse"] or self._busy:
+            return
+        if hasattr(row, "reveal"):                     # new secured network: ask for the password
+            row.reveal.set_reveal_child(not row.reveal.get_reveal_child())
+            if row.reveal.get_reveal_child():
+                row.pw.grab_focus()
+            return
+        self._connect(n, None)
+
+    def _connect(self, n, password):
+        npg = netpage()
+        if n["uuid"] and password is None:
+            args = ("connection", "up", n["uuid"])
+        elif password:
+            args = ("device", "wifi", "connect", n["ssid"], "password", password)
+        else:
+            args = ("device", "wifi", "connect", n["ssid"])
+        self._busy = True
+        self.status.set_visible(True)
+        self.status.set_label(f"Connecting to {n['ssid']}…")
+
+        def done(r):
+            self._busy = False
+            ok, _out, err = r if r else (False, "", "")
+            self.status.set_label(f"Connected to {n['ssid']}" if ok else
+                                  f"Couldn't connect: {(err.splitlines() or ['unknown error'])[-1][:120]}")
+            self._load()
+        bg(lambda: npg.nmcli(*args, timeout=40), done)
+
+    def _toggle(self, _sw, on):
+        if self._sync:
+            return False
+        bg(lambda: run("nmcli", "radio", "wifi", "on" if on else "off", timeout=5),
+           lambda _r: GLib.timeout_add(1500, lambda: (self._load(), False)[1]))
+        return False
+
+    def closed(self):
+        super().closed()
+        self._scanning(False)
+
+    def opened(self):
+        super().opened()
+        self._busy = False
+        self.status.set_visible(False)
+        self._load()                                   # cached list right away
+        GLib.timeout_add(300, lambda: (self._load(rescan=True), False)[1])   # then a fresh scan
+
+
 class PanelManager:
     KINDS = {"calendar": CalendarPanel, "battery": BatteryPanel, "network": NetworkPanel, "media": MediaPanel,
-             "system": SystemPanel}
+             "system": SystemPanel, "wifi": WifiPanel}
 
     def __init__(self, app):
         self.app = app

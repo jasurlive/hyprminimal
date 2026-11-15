@@ -49,6 +49,7 @@
 .inline-reply-entry { background: @surface_var; color: @on_surface; border: 1px solid @outline; }
 
 /* ---------- control center (Super+S), hangs under the bar ----------
+   Top to bottom: notifications, media, tiles, session buttons (bottom = closest to the mouse).
    One rhythm everywhere: 16px panel padding, 12px between blocks, 8px between tiles,
    every card the same surface, border and corner. */
 .control-center {
@@ -61,16 +62,16 @@
 .control-center-list-placeholder { color: @outline; }
 
 /* "Notifications" header with the Clear all button, right above the list */
-.widget-title { margin: 4px 0 8px 0; padding: 0; }
+.widget-title { margin: 0 0 8px 0; padding: 0; }
 .widget-title > label { color: @on_surface_var; font-size: 16px; font-weight: 600; }
 .widget-title > button {
   background: alpha(@surface_var, 0.6); color: @on_surface; border: 1px solid @outline;
-  padding: 4px 14px; box-shadow: none; border-radius: 0; font-size: 14px; font-weight: 600;
+  padding: 4px 14px; box-shadow: none; border-radius: 10px; font-size: 14px; font-weight: 600;
 }
 .widget-title > button:hover { background: @primary; color: @on_primary; border-color: @primary; }
 
 /* media card: flat card, no blurred album-art backdrop */
-.widget-mpris { margin: 0 0 12px 0; padding: 0; background: none; border: none; }
+.widget-mpris { margin: 12px 0 0 0; padding: 0; background: none; border: none; }
 .widget-mpris .widget-mpris-player {
   background-color: alpha(@surface_var, 0.6); border: 1px solid @outline;
   margin: 0; padding: 0; border-radius: 0; box-shadow: none;
@@ -87,31 +88,46 @@
 .widget-mpris .widget-mpris-player .mpris-overlay > box > button:hover { background: @primary; color: @on_primary; }
 .widget-mpris > box > button { background: transparent; border: none; color: @on_surface; box-shadow: none; }
 
-/* tiles: 3 equal columns, same height, icon + label on one centred line */
-.widget-buttons-grid { padding: 0; margin: 0 0 4px 0; background: none; }
+/* tiles: 3 equal columns, rounded cards. Wi-Fi and System carry a second, centred info line
+   (scripts/control-center.sh); the toggles show their state by colour only. */
+.widget-buttons-grid { padding: 0; margin: 12px 0 0 0; background: none; }
 .widget-buttons-grid > flowbox { padding: 0; margin: 0 -4px; }
 .widget-buttons-grid flowboxchild { padding: 0; margin: 0; }
 .widget-buttons-grid flowboxchild > button {
-  min-width: 205px;
-  min-height: 52px;
+  min-width: 168px;
+  min-height: 62px;
   margin: 4px;
-  padding: 0 10px;
-  background: alpha(@surface_var, 0.6);
+  padding: 6px 12px;
+  background: alpha(@surface_var, 0.55);
   color: @on_surface_var;
-  border: 1px solid @outline;
-  border-radius: 0;
+  border: 1px solid alpha(@outline, 0.7);
+  border-radius: 14px;
   box-shadow: none;
-  font-size: 15px;
-  font-weight: 600;
+  transition: background 150ms ease, border-color 150ms ease;
 }
-.widget-buttons-grid flowboxchild > button label { font-size: 15px; font-weight: 600; }
-.widget-buttons-grid flowboxchild > button:hover { background: alpha(@primary, 0.30); }
+.widget-buttons-grid flowboxchild > button label { font-size: 14px; font-weight: 600; }
+.widget-buttons-grid flowboxchild > button:hover { background: alpha(@primary, 0.22); border-color: alpha(@primary, 0.6); }
 .widget-buttons-grid flowboxchild > button.toggle:checked { background: @primary; color: @on_primary; border-color: @primary; }
+.widget-buttons-grid flowboxchild > button.toggle:checked:hover { background: alpha(@primary, 0.85); }
 
-/* session: one full-width tile under the grid, same look, red on hover */
-.widget-buttons-grid#power { margin: 0 0 12px 0; }
-.widget-buttons-grid#power flowboxchild > button { min-height: 44px; }
-.widget-buttons-grid#power flowboxchild > button:hover { background: alpha(@error, 0.85); color: @on_primary; border-color: @error; }
+/* top row: [ Wi-Fi | › ] [ System ], two halves; the › is joined to the Wi-Fi tile and opens the network list */
+.widget-buttons-grid.info flowboxchild:nth-child(1) > button { min-width: 240px; border-radius: 14px 0 0 14px; margin-right: 0; }
+.widget-buttons-grid.info flowboxchild:nth-child(2) > button {
+  min-width: 16px; padding: 0 8px; margin-left: 0; border-left-width: 0; border-radius: 0 14px 14px 0;
+}
+.widget-buttons-grid.info flowboxchild:nth-child(2) > button label { font-size: 18px; }
+.widget-buttons-grid.info flowboxchild:nth-child(3) > button { min-width: 274px; }
+
+/* toggles: four in a row, one line each */
+.widget-buttons-grid:not(.info):not(.power) flowboxchild > button { min-width: 118px; min-height: 50px; padding: 0 6px; }
+.widget-buttons-grid:not(.info):not(.power) flowboxchild > button label { font-size: 13px; }
+.widget-buttons-grid.info + .widget-buttons-grid, .widget-buttons-grid:not(.info):not(.power) { margin-top: 4px; }
+
+/* session: five one-click pills in a row, red on hover */
+.widget-buttons-grid.power { margin: 4px 0 0 0; }
+.widget-buttons-grid.power flowboxchild > button { min-width: 92px; min-height: 44px; padding: 0 4px; border-radius: 22px; }
+.widget-buttons-grid.power flowboxchild > button label { font-size: 13px; font-weight: 600; }
+.widget-buttons-grid.power flowboxchild > button:hover { background: alpha(@error, 0.85); color: @on_primary; border-color: @error; }
 .widget-mpris .widget-mpris-player .mpris-overlay > box > button image { -gtk-icon-size: 20px; }
 
 /* notifications listed in the control center: one flat card each, no extra group box */

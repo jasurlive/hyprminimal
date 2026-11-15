@@ -15,6 +15,8 @@ glass("panel",  "^hyprminimal-panel$",              { animation = "slide top" })
 hl.layer_rule({ name = "hyprminimal-catcher", match = { namespace = "^hyprminimal-catcher$" }, no_anim = true })
 
 -- settings window: float and centre it, like Noctalia's settings panel
+-- launcher "rm NAME": uninstall terminal (scripts/remove-app.sh)
+hl.window_rule({ match = { class = "^hyprminimal-remove$" }, float = true, size = "820 520", center = 1 })
 hl.window_rule({ match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, size = "1120 760", center = 1, opaque = true })
 
 return true

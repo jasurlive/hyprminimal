@@ -9,7 +9,7 @@
   "layer-shell": true,
   "cssPriority": "user",
   "notification-window-width": 480,
-  "control-center-width": 700,
+  "control-center-width": 640,
   "control-center-margin-top": 8,
   "control-center-margin-right": 4,
   "control-center-margin-left": 0,
@@ -28,11 +28,12 @@
   "hide-on-clear": false,
   "hide-on-action": true,
   "widgets": [
-    "mpris",
-    "buttons-grid",
-    "buttons-grid#power",
     "title",
-    "notifications"
+    "notifications",
+    "mpris",
+    "buttons-grid#info",
+    "buttons-grid",
+    "buttons-grid#power"
   ],
   "widget-config": {
     "title": {
@@ -43,9 +44,11 @@
     "mpris": {
       "image-size": 72,
       "blur": false,
-      "blacklist": ["playerctld"]
+      "blacklist": [
+        "playerctld"
+      ]
     },
-    "buttons-grid": {
+    "buttons-grid#info": {
       "buttons-per-row": 3,
       "actions": [
         {
@@ -55,28 +58,8 @@
           "update-command": "sh -c 'nmcli radio wifi | grep -q enabled && echo true || echo false'"
         },
         {
-          "label": "󰂯   Bluetooth",
-          "type": "toggle",
-          "command": "sh -c '[ \"$SWAYNC_TOGGLE_STATE\" = true ] && bluetoothctl power on || bluetoothctl power off'",
-          "update-command": "sh -c 'bluetoothctl show | grep -q \"Powered: yes\" && echo true || echo false'"
-        },
-        {
-          "label": "󰅶   Caffeine",
-          "type": "toggle",
-          "command": "hyprminimal-msg caffeine",
-          "update-command": "hyprminimal-msg caffeine-state"
-        },
-        {
-          "label": "󰖔   Night Light",
-          "type": "toggle",
-          "command": "hyprminimal-msg nightlight",
-          "update-command": "hyprminimal-msg nightlight-state"
-        },
-        {
-          "label": "󰂛   Do Not Disturb",
-          "type": "toggle",
-          "command": "swaync-client -d -sw",
-          "update-command": "swaync-client -D -sw"
+          "label": "󰅂",
+          "command": "sh -c 'swaync-client -cp; hyprminimal-msg panel wifi'"
         },
         {
           "label": "󰓅   System",
@@ -84,12 +67,57 @@
         }
       ]
     },
-    "buttons-grid#power": {
-      "buttons-per-row": 1,
+    "buttons-grid": {
+      "buttons-per-row": 4,
       "actions": [
         {
-          "label": "󰐥   Session",
-          "command": "sh -c 'swaync-client -cp; hyprminimal-msg session'"
+          "label": "󰂯  Bluetooth",
+          "type": "toggle",
+          "command": "hyprminimal-msg bluetooth",
+          "update-command": "hyprminimal-msg bluetooth-state"
+        },
+        {
+          "label": "󰅶  Caffeine",
+          "type": "toggle",
+          "command": "hyprminimal-msg caffeine",
+          "update-command": "hyprminimal-msg caffeine-state"
+        },
+        {
+          "label": "󰖔  Night Light",
+          "type": "toggle",
+          "command": "hyprminimal-msg nightlight",
+          "update-command": "hyprminimal-msg nightlight-state"
+        },
+        {
+          "label": "󰂛  Silent",
+          "type": "toggle",
+          "command": "swaync-client -d -sw",
+          "update-command": "swaync-client -D -sw"
+        }
+      ]
+    },
+    "buttons-grid#power": {
+      "buttons-per-row": 5,
+      "actions": [
+        {
+          "label": "󰌾  Lock",
+          "command": "sh -c 'swaync-client -cp; hyprminimal-msg lock'"
+        },
+        {
+          "label": "󰗽  Log Out",
+          "command": "sh -c 'swaync-client -cp; hyprctl dispatch \"hl.dsp.exit()\"'"
+        },
+        {
+          "label": "󰏤  Suspend",
+          "command": "sh -c 'swaync-client -cp; hyprminimal-msg lock & sleep 1; systemctl suspend'"
+        },
+        {
+          "label": "󰑓  Reboot",
+          "command": "systemctl reboot"
+        },
+        {
+          "label": "󰐥  Shut Down",
+          "command": "systemctl poweroff"
         }
       ]
     }
