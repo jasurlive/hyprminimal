@@ -1,0 +1,19 @@
+/* hyprminimal palette: Tokyo Night Moon (same colours Noctalia used) */
+@define-color primary        #7a88cf;
+@define-color on_primary     #1f2335;
+@define-color secondary      #d7729f;
+@define-color tertiary       #9cd58a;
+@define-color error          #f7768e;
+@define-color warning        #e6c384;
+@define-color surface        #1f2335;
+@define-color surface_var    #2c314a;
+@define-color on_surface     #a9b1d6;
+@define-color on_surface_var #c0caf5;
+@define-color outline        #4b517a;
+@define-color shadow         #181b2a;
+
+/* muted state colours: calm, low-saturation (Scandinavian minimal) */
+@define-color state_charge #8ea4c8;   /* dusty blue  */
+@define-color state_warn   #c8b48e;   /* muted sand  */
+@define-color state_crit   #cf8f9a;   /* dusty rose  */
+@define-color linen        #e6ddd0;   /* Scandinavian linen: warm off-white */

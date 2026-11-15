@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# hyprminimal settings app (GTK4 + libadwaita). See settings/hyprminimal_settings.py --help
+# Fast path: if the app is already running (it stays resident, hidden, for 10 min after closing),
+# ask it over D-Bus to show the page: ~10 ms instead of starting Python + GTK.
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+if [[ $1 == --panel && $2 =~ ^[a-z]+$ ]]; then
+  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+    --method org.gtk.Actions.Activate panel "[<'$2'>]" "{}" >/dev/null 2>&1 && exit 0
+elif [[ $1 != --apply && $1 != --preload && $1 != -h && $1 != --help ]]; then
+  page=general
+  [[ $1 == --page && -n ${2:-} ]] && page=$2
+  [[ $page =~ ^[a-z]+$ ]] || page=general
+  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+    --method org.gtk.Actions.Activate show-page "[<'$page'>]" "{}" >/dev/null 2>&1 && exit 0
+fi
+# layer-shell must be loaded before libwayland for the bar popups to attach to the screen edge
+LS=/usr/lib/libgtk4-layer-shell.so
+[[ -e $LS ]] && export LD_PRELOAD="$LS${LD_PRELOAD:+:$LD_PRELOAD}"
+exec python3 -I "$DIR/settings/hyprminimal_settings.py" "$@"

@@ -1,0 +1,18 @@
+# hyprminimal: official Arch repos only (core/extra)
+waybar
+rofi
+swaync
+swayosd
+swaybg
+hyprlock
+hypridle
+playerctl
+hyprsunset
+jq
+brightnessctl
+libnotify
+pavucontrol
+network-manager-applet
+blueman
+noto-fonts
+ttf-nerd-fonts-symbols

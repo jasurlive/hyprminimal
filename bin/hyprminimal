@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+# hyprminimal: run the hyprminimal shell in place of Noctalia, inside the running Hyprland.
+#   hyprminimal start          stop Noctalia, start hyprminimal
+#   hyprminimal stop           stop hyprminimal, start Noctalia again
+#   hyprminimal restart        restart hyprminimal (after editing configs)
+#   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server swaybg hypridle)
+#   hyprminimal wallpaper PATH show PATH as the wallpaper (used by Settings)
+#   hyprminimal status         show what is running
+set -uo pipefail
+# never pass a GTK4 preload (Settings runs with libgtk4-layer-shell) on to waybar (GTK3): it crashes at start
+unset LD_PRELOAD
+
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+RUN="${XDG_RUNTIME_DIR:-/tmp}/hyprminimal"
+GEN="$DIR/.generated"   # rendered from settings.json by hyprminimal-settings --apply
+GOOD="$GEN/good"        # last config each component ran on without crashing
+ERR="$RUN/errors"       # ERR/NAME: why a component failed; the bar shows a red pill, Settings a red banner
+export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
+
+COMPONENTS=(waybar swaync swayosd-server swaybg hypridle)
+declare -A LOG=([waybar]=waybar [swaync]=swaync [swayosd-server]=swayosd [swaybg]=swaybg [hypridle]=hypridle)
+declare -A NAME=([waybar]="Bar" [swaync]="Notification centre" [swayosd-server]="Volume/brightness OSD"
+                 [swaybg]="Wallpaper" [hypridle]="Idle/lock timer")
+declare -A CONF=([waybar]="waybar.json waybar.css" [swaync]="swaync.json swaync.css" [hypridle]="hypridle.conf")
+declare -A FIX=([waybar]="Check Settings → Bar, or waybar/config.jsonc and waybar/style.css."
+                [swaync]="Check swaync/config.json and swaync/style.css."
+                [swayosd-server]="Check swayosd/config.toml and swayosd/style.css."
+                [swaybg]="Check that swaybg is installed and the wallpaper file exists (Settings → Wallpaper)."
+                [hypridle]="Check Settings → Idle, or the rendered .generated/hypridle.conf.")
+
+# previous log kept as NAME.log.1 so a crash reason survives the restart
+spawn() { local name=$1; shift; [[ -s $RUN/$name.log ]] && mv -f "$RUN/$name.log" "$RUN/$name.log.1"
+          ( unlock_fd; exec setsid -f "$@" >"$RUN/$name.log" 2>&1 </dev/null ); }
+# started programs must not inherit the respawn lock (see with_lock), or it is never released
+unlock_fd() { [[ ${LOCKFD:-} ]] && eval "exec ${LOCKFD}>&-"; return 0; }
+
+# desktop notification, only through hyprminimal's own swaync (never D-Bus-activate the stock one)
+notify() {  # urgency title body
+  busctl --user list 2>/dev/null | grep -q "^org.erikreider.swaync.cc " || { echo "hyprminimal: $2: $3" >&2; return; }
+  notify-send -a hyprminimal -i dialog-warning -u "$1" "$2" "$3" 2>/dev/null
+}
+
+# rendered config file to start NAME with: the last working copy while NAME is in fallback
+cfg() { local c=$1 f=$2; [[ -e $RUN/fallback/$c && -f $GOOD/$f ]] && echo "$GOOD/$f" || echo "$GEN/$f"; }
+
+set_error() {   # NAME message: remember the failure and refresh the bar's error pill
+  mkdir -p "$ERR"; printf '%s\n' "$2" >"$ERR/$1"; pkill -RTMIN+9 -x waybar
+}
+clear_error() { [[ -e $ERR/$1 ]] && { rm -f "$ERR/$1"; pkill -RTMIN+9 -x waybar; }; return 0; }
+
+start_one() {   # start a single component (not running already)
+  case $1 in
+    waybar)
+      spawn waybar waybar -c "$(cfg waybar waybar.json)" -s "$(cfg waybar waybar.css)" ;;
+    swaync)
+      # GTK4 CSS has no cursor/tooltip support: preload a tiny shim (pointer cursor + tooltips)
+      local ptr="$GEN/swaync-pointer.so" src="$DIR/swaync/cursor/pointer.c" pre=""
+      if [[ ! $ptr -nt $src ]] && ! gcc -O2 -shared -fPIC -o "$ptr" "$src" $(pkg-config --cflags --libs gtk4) 2>"$RUN/shim-build.log"; then
+        rm -f "$ptr"; SHIM_FAILED=1
+      fi
+      [[ -f $ptr ]] && pre=$ptr
+      spawn swaync env LD_PRELOAD="$pre" HYPRMINIMAL_SWAYNC_TOOLTIPS="$DIR/swaync/tooltips.txt" \
+        swaync -c "$(cfg swaync swaync.json)" -s "$(cfg swaync swaync.css)"
+      # wait for the bus name: anything that calls swaync-client first would D-Bus-activate the stock swaync
+      for _ in $(seq 25); do busctl --user list 2>/dev/null | grep -q "^org.erikreider.swaync.cc " && break; sleep 0.1; done
+      [[ ${SHIM_FAILED:-} ]] && notify normal "Control centre: no pointer cursor/tooltips" \
+        "Building swaync/cursor/pointer.c failed (needs gcc and gtk4 headers). Details: $RUN/shim-build.log" ;;
+    swayosd-server)
+      spawn swayosd swayosd-server --config "$DIR/swayosd/config.toml" --style "$DIR/swayosd/style.css" ;;
+    swaybg)   # optional $2: image path (default: the saved wallpaper)
+      local wp=${2:-$(cat "$GEN/wallpaper" 2>/dev/null)} old; old=$(pgrep -x swaybg)
+      if [[ -f $wp ]]; then spawn swaybg swaybg -o '*' -i "$wp" -m fill
+      else spawn swaybg swaybg -o '*' -c '#222436'; fi
+      # new one first, then drop the old: no black flash when the wallpaper changes
+      [[ $old ]] && { sleep 0.3; kill $old 2>/dev/null; } ;;
+    hypridle)
+      spawn hypridle hypridle -c "$(cfg hypridle hypridle.conf)" ;;
+    *) echo "hyprminimal: unknown component $1" >&2; return 2 ;;
+  esac
+}
+
+stop_one() {
+  pkill -x "$1"
+  if [[ $1 == waybar ]]; then   # its helpers never outlive the bar
+    pkill -f 'playerctl --follow metadata --format'
+    pkill -f 'hyprminimal/(scripts/netspeed\.sh|\.generated/bin/netspeed)'
+  fi
+  [[ $1 == swaync ]] && systemctl --user stop swaync.service 2>/dev/null   # a D-Bus-activated copy, if any
+  for _ in $(seq 20); do pgrep -x "$1" >/dev/null || break; sleep 0.05; done
+}
+
+# small C helpers (helpers/*.c -> .generated/bin/), rebuilt when the source is newer. Optional: without gcc
+# the bar falls back to scripts/netspeed.sh's loop and the watchdog to polling every 3 s.
+build_helpers() {
+  local src out
+  mkdir -p "$GEN/bin"
+  for src in "$DIR"/helpers/*.c; do
+    out="$GEN/bin/$(basename "$src" .c)"
+    [[ $out -nt $src ]] && continue
+    gcc -O2 -Wall -o "$out.tmp" "$src" 2>>"$RUN/helpers-build.log" && mv -f "$out.tmp" "$out" || rm -f "$out.tmp"
+  done
+}
+
+restart_one() { stop_one "$1"; start_one "$1"; }
+ensure_one() { pgrep -x "$1" >/dev/null && return 1; start_one "$1"; }
+
+# one component at a time: settings reloads and the watchdog never start it twice
+with_lock() {
+  local name=$1 rc; shift
+  exec {LOCKFD}>"$RUN/$name.lock"; flock "$LOCKFD"
+  "$@"; rc=$?
+  exec {LOCKFD}>&-; LOCKFD=""
+  return $rc
+}
+
+# last meaningful error line of a component's log (skips GTK theme noise)
+why() {
+  local f="$RUN/${LOG[$1]}.log" line sig
+  sig=$(coredumpctl --no-pager -q list --since=-30s "$(command -v "$1")" 2>/dev/null | awk '$(NF-3) ~ /^SIG/ {s=$(NF-3)} END {print s}')
+  line=$(grep -aiE 'error|critical|fail|panic|abort|segmentation|invalid|unknown|cannot|not found' "$f" 2>/dev/null \
+         | grep -viE 'Theme parser error|DispatchNotifier|gtk_icon_theme_lookup|libadwaita' | tail -2 \
+         | sed -E 's/^\[[^]]*\] *//; s/^\([^)]*\): *//; s/^ +//' | paste -sd' ' | cut -c1-240)
+  if [[ $sig == SIG* ]]; then echo "crashed ($sig)${line:+. Last error: $line}"
+  elif [[ $line ]]; then echo "$line"
+  else echo "exited without an error message"; fi
+}
+
+# config of NAME differs from its last working copy (so falling back to that copy can help)
+config_changed() {
+  local f; for f in ${CONF[$1]:-}; do [[ -f $GOOD/$f ]] && ! cmp -s "$GEN/$f" "$GOOD/$f" && return 0; done; return 1
+}
+
+# NAME runs on a config it hasn't proven yet (new settings, or it had an error): mark_good still has work
+unproven() {
+  local c=$1 f
+  [[ -e $RUN/fallback/$c ]] && return 1
+  [[ -e $ERR/$c ]] && return 0
+  for f in ${CONF[$c]:-}; do [[ $GEN/$f -nt $GOOD/$f ]] && return 0; done
+  return 1
+}
+
+# NAME has run 5 s on the current config: keep that config as the last working one, clear its error
+mark_good() {
+  local c=$1 pid=$2 f
+  unproven "$c" || return
+  local up; up=$(ps -o etimes= -p "$pid" 2>/dev/null) || return
+  (( ${up:-0} >= 5 )) || return
+  mkdir -p "$GOOD"; for f in ${CONF[$c]:-}; do cp -p "$GEN/$f" "$GOOD/$f"; done
+  clear_error "$c"
+}
+
+# watchdog: restart dead components and say why. A component that dies on new settings goes back to its
+# last working config (the rest of the shell is untouched) and shows a red error in the bar and Settings;
+# one that keeps dying anyway is left stopped, with the reason and what to fix.
+# Event-driven: between rounds it blocks in waitpids (helpers/waitpids.c) until a component exits, so it
+# costs nothing while everything runs. It wakes on a timer only while something needs a second look.
+watchdog() {
+  declare -A hits gave pid
+  local now c reason pat t again waiter="$GEN/bin/waitpids"
+  pat="$(IFS='|'; echo "${COMPONENTS[*]}")"
+  while [[ -e $RUN/active ]]; do
+    now=$EPOCHSECONDS
+    pid=() again=""
+    while read -r p n; do pid[$n]=$p; done < <(pgrep -x -l "$pat")   # one process scan per round
+    for c in "${COMPONENTS[@]}"; do
+      if [[ ${pid[$c]:-} ]]; then gave[$c]=""; mark_good "$c" "${pid[$c]}"; continue; fi
+      [[ ${gave[$c]:-} ]] && continue
+      again=1
+      # being restarted right now (Settings applying new values holds its lock): not a crash
+      flock -n "$RUN/$c.lock" true 2>/dev/null || continue
+      reason=$(why "$c")
+      if [[ ! -e $RUN/fallback/$c ]] && config_changed "$c"; then
+        mkdir -p "$RUN/fallback"; touch "$RUN/fallback/$c"
+        set_error "$c" "$reason — running on your last working settings"
+        with_lock "$c" ensure_one "$c"
+        notify critical "${NAME[$c]} failed on the new settings" \
+          "$reason
+Went back to the last working settings; the rest of hyprminimal is unaffected. ${FIX[$c]}"
+        continue
+      fi
+      local recent=() t0
+      for t0 in ${hits[$c]:-}; do (( now - t0 < 60 )) && recent+=("$t0"); done
+      recent+=("$now"); hits[$c]="${recent[*]}"
+      if (( ${#recent[@]} >= 3 )); then
+        gave[$c]=1
+        set_error "$c" "$reason — stopped after 3 crashes"
+        notify critical "${NAME[$c]} keeps crashing, stopped restarting it" \
+          "$reason
+${FIX[$c]}
+Log: $RUN/${LOG[$c]}.log — after fixing run: hyprminimal restart"
+        continue
+      fi
+      with_lock "$c" ensure_one "$c" || continue   # 1 = someone restarted it meanwhile
+      sleep 1
+      if pgrep -x "$c" >/dev/null; then
+        notify normal "${NAME[$c]} stopped, restarted it" "$reason"
+      fi
+    done
+    if [[ $again || ! -x $waiter || ${#pid[@]} -eq 0 ]]; then sleep 3; continue; fi   # something changed: look again soon
+    t=-1
+    for c in "${!pid[@]}"; do unproven "$c" && t=6000; done     # mark_good needs a look after 5 s of uptime
+    for c in "${!gave[@]}"; do [[ ${gave[$c]} ]] && t=30000; done  # notice a stopped one restarted by hand
+    "$waiter" "$t" "${pid[@]}" || [[ $? == 1 ]] || sleep 3       # 2 = error: fall back to polling
+    sleep 1   # an exit is often a restart in progress (Settings applying new values): let it finish
+  done
+}
+
+stop_components() {
+  pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"
+  for c in "${COMPONENTS[@]}"; do stop_one "$c"; done
+  pkill -x hyprsunset
+  [[ -f $RUN/caffeine.pid ]] && kill "$(cat "$RUN/caffeine.pid")" 2>/dev/null; rm -f "$RUN/caffeine.pid"
+  sleep 0.3
+}
+
+start_components() {
+  local err
+  if ! err=$("$DIR/bin/hyprminimal-settings" --apply 2>&1); then
+    RENDER_ERR=${err##*$'\n'}   # reported once swaync is up
+  fi
+  local nl temp
+  read -r nl temp < "$GEN/nightlight" 2>/dev/null
+  build_helpers
+  # swaync first: waybar's notification module calls swaync-client (see start_one)
+  start_one swaybg
+  start_one swaync
+  start_one waybar
+  start_one swayosd-server
+  start_one hypridle
+  # one "current player" for bar, panel and media keys (several Firefox tabs = several players)
+  pgrep -x playerctld >/dev/null || spawn playerctld playerctld daemon
+  [[ ${nl:-} == on ]] && spawn hyprsunset hyprsunset -t "${temp:-4000}"
+  # settings app, started hidden so Super+I / Super+H open instantly
+  pgrep -f '[a]rchello_settings.py' >/dev/null || spawn settings "$DIR/bin/hyprminimal-settings" --preload
+  if [[ ${RENDER_ERR:-} ]]; then set_error settings "Settings could not be applied: $RENDER_ERR"; else clear_error settings; fi
+  [[ ${RENDER_ERR:-} ]] && notify critical "hyprminimal: settings could not be applied" \
+    "$RENDER_ERR
+Using the last working files. Check settings.json (or reopen Settings and change the value back)."
+  setsid -f "$DIR/bin/hyprminimal" watchdog >"$RUN/watchdog.log" 2>&1 </dev/null
+}
+
+# Settings → Startup: user commands, once per login ($RUN lives in XDG_RUNTIME_DIR, cleared at logout),
+# so hyprminimal restart / stop+start never launch them twice
+run_startup() {
+  [[ -e $RUN/startup.done ]] && return
+  touch "$RUN/startup.done"
+  local cmd
+  while IFS= read -r cmd; do
+    [[ $cmd ]] || continue
+    echo "[$(date +%T)] $cmd" >>"$RUN/startup.log"
+    ( cd "$HOME" && setsid -f sh -c "$cmd" >>"$RUN/startup.log" 2>&1 </dev/null )
+  done < "$GEN/startup" 2>/dev/null
+}
+
+case ${1:-} in
+  start)
+    miss=()
+    while read -r p; do
+      [[ -z $p || $p == \#* ]] || pacman -Qq "$p" >/dev/null 2>&1 || miss+=("$p")
+    done < "$DIR/packages.txt"
+    if (( ${#miss[@]} )); then
+      echo "hyprminimal: install missing packages first:"
+      echo "  sudo pacman -S --needed ${miss[*]}"
+      exit 1
+    fi
+    mkdir -p "$RUN"; touch "$RUN/active"; rm -rf "$RUN/fallback" "$ERR"
+    pkill -x noctalia
+    stop_components; start_components
+    run_startup
+    echo "hyprminimal started (logs: $RUN). Back to Noctalia: hyprminimal stop"
+    ;;
+  stop)
+    rm -f "$RUN/active"
+    stop_components
+    gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+      --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
+    pgrep -x noctalia >/dev/null || setsid -f noctalia >/dev/null 2>&1 </dev/null
+    echo "hyprminimal stopped, Noctalia started"
+    ;;
+  restart)
+    [[ -e $RUN/active ]] || { echo "hyprminimal is not active"; exit 1; }
+    # the settings process caches its code: restart it too so edits always take effect
+    gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+      --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1; sleep 0.3
+    rm -rf "$RUN/fallback" "$ERR"
+    stop_components; start_components; echo "hyprminimal restarted"
+    ;;
+  respawn)
+    [[ -e $RUN/active ]] || exit 0
+    c=${2:-}; [[ -n ${LOG[$c]:-} ]] || { echo "usage: hyprminimal respawn ${COMPONENTS[*]}"; exit 2; }
+    rm -f "$RUN/fallback/$c"; clear_error "$c"   # new settings: try them (the watchdog falls back if they fail)
+    with_lock "$c" restart_one "$c"
+    ;;
+  wallpaper)
+    [[ -e $RUN/active ]] || exit 0
+    [[ -f ${2:-} ]] || { echo "hyprminimal: no such image: ${2:-}" >&2; exit 2; }
+    with_lock swaybg start_one swaybg "$2"
+    ;;
+  watchdog) watchdog ;;
+  status)
+    [[ -e $RUN/active ]] && echo "mode: hyprminimal" || echo "mode: noctalia"
+    for c in noctalia "${COMPONENTS[@]}"; do
+      printf '  %-15s %s%s\n' "$c" "$(pgrep -x "$c" >/dev/null && echo running || echo -)" \
+        "$([[ -e $RUN/fallback/$c ]] && echo ' (last working settings)')"
+    done
+    for f in "$ERR"/*; do [[ -f $f ]] && printf 'error %s: %s\n' "${f##*/}" "$(<"$f")"; done
+    exit 0
+    ;;
+  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+esac

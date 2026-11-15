@@ -1,0 +1,86 @@
+@import "../colors/palette.css";
+
+* {
+  font-family: "Noto Sans", "Symbols Nerd Font";
+  font-size: 17px;
+  font-weight: 500;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}
+
+/* Noctalia bar: surface at 30% opacity, radius 5 */
+window#waybar {
+  background: alpha(@surface, 0.30);
+  color: @on_surface;
+  border-radius: 5px;
+}
+.modules-left  { margin-left: 9px; }
+.modules-right { margin-right: 9px; }
+
+tooltip { background: alpha(@surface, 0.92); border: 1px solid @outline; border-radius: 0; }
+tooltip label { color: @on_surface_var; }
+
+/* workspaces: outlined rectangles, slightly rounded. occupied = linen, active = wider blue */
+#workspaces { margin: 0; }
+#workspaces button {
+  min-width: 24px;
+  min-height: 24px;
+  margin: 9px 3px;   /* 10px minus the 1px border: bar stays 45px */
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid alpha(@linen, 0.7);
+  background: alpha(@linen, 0.08);
+  color: @linen;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: none;
+  transition: min-width 250ms ease, background 250ms ease, border-color 250ms ease;
+}
+#workspaces button.active { min-width: 52px; border-color: @primary; background: alpha(@primary, 0.25); color: @on_surface; }
+#workspaces button.urgent { border-color: @state_crit; background: alpha(@state_crit, 0.25); color: @state_crit; }
+#workspaces button:hover  { border-color: @primary; background: alpha(@primary, 0.35); color: @on_surface; }
+
+/* centre: "15 |" + clock, a bit larger */
+#clock { font-size: 22px; font-weight: 400; color: @on_surface; padding: 0; }
+#clock.date { margin-right: -2px; }
+
+/* media capsule */
+#custom-media {
+  background-color: @surface_var;
+  color: @on_surface_var;
+  border-radius: 17px;
+  padding: 0 14px;
+  margin: 5px 0;
+}
+/* playing: 6 still equalizer bars (pure CSS). Not animated on purpose: an endless CSS animation redraws the
+   bar, and Hyprland re-blurs it, on every frame for as long as music plays (~5% CPU on waybar alone). */
+#custom-media.playing {
+  padding-left: 64px;
+  background-color: @surface_var;
+  background-image: linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary);
+  background-repeat: no-repeat;
+  background-position: 14px 50%, 21px 50%, 28px 50%, 35px 50%, 42px 50%, 49px 50%;
+  background-size: 4px 10px, 4px 18px, 4px 13px, 4px 22px, 4px 15px, 4px 9px;
+}
+
+
+
+
+#custom-notification { font-size: 23px; color: @on_surface; }
+/* unread notifications: solid blue bell (outline when none) */
+#custom-notification.notification, #custom-notification.dnd-notification,
+#custom-notification.inhibited-notification, #custom-notification.dnd-inhibited-notification { color: @primary; }
+#battery             { color: @on_surface; }
+#battery.charging, #battery.plugged { color: @state_charge; }
+#battery.warning:not(.charging)  { color: @state_warn; }
+#battery.critical:not(.charging) { color: @state_crit; }
+#network, #custom-net { color: @on_surface; }
+#custom-net.offline { color: @outline; }
+
+/* optional widgets */
+#cpu, #memory, #pulseaudio, #network.wifi, #bluetooth, #tray { color: @on_surface; }
+#pulseaudio.muted, #bluetooth.off, #bluetooth.disabled { color: @outline; }
+
+/* a part of hyprminimal failed (scripts/errors.sh): red pill, click opens Settings on that part */
+#custom-errors { color: #1f2335; background: #f7768e; border-radius: 4px; padding: 0 10px; margin: 6px 4px; font-weight: 700; }

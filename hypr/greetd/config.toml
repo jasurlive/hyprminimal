@@ -1,0 +1,15 @@
+# hyprminimal: greetd config with autologin into the hyprminimal lock screen.
+# Installed by: sudo bin/hyprminimal-autologin enable   (removed by: ... disable)
+[terminal]
+vt = 1
+
+# boot: log in as jasur without a password; Hyprland then shows hyprlock first
+# (see ~/.config/hypr/startup.lua, HYPRMINIMAL_AUTOLOGIN). Runs once per boot only.
+[initial_session]
+command = "env HYPRMINIMAL_AUTOLOGIN=1 /usr/bin/start-hyprland"
+user = "jasur"
+
+# after logging out: the normal Noctalia greeter
+[default_session]
+command = "/usr/bin/noctalia-greeter-session"
+user = "greeter"

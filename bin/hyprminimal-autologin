@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# hyprminimal-autologin enable|disable|status: boot straight into the lock screen (greetd autologin).
+# Takes effect on the next boot. Needs root: sudo hyprminimal-autologin enable
+set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+CONF=/etc/greetd/config.toml BAK=/etc/greetd/config.toml.pre-hyprminimal
+case ${1:-status} in
+  enable)
+    [[ -f $BAK ]] || cp -p "$CONF" "$BAK"
+    install -m 644 "$DIR/hypr/greetd/config.toml" "$CONF"
+    echo "autologin on (next boot). Undo: sudo $0 disable" ;;
+  disable)
+    [[ -f $BAK ]] || { echo "no backup at $BAK, nothing to restore"; exit 1; }
+    cp -p "$BAK" "$CONF" && rm -f "$BAK"
+    echo "autologin off, greeter restored (next boot)" ;;
+  status)
+    grep -q '^\[initial_session\]' "$CONF" && echo "autologin: on" || echo "autologin: off" ;;
+  *) echo "usage: $0 enable|disable|status"; exit 2 ;;
+esac

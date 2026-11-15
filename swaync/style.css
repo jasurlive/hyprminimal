@@ -1,0 +1,128 @@
+@import "../colors/palette.css";
+
+/* Noctalia look: square corners, 1px outline border, translucent surface */
+* { font-family: "Noto Sans", "Symbols Nerd Font"; font-size: 16px; border-radius: 0; }
+
+/* ---------- popups (top right) ---------- */
+.notification-row { outline: none; background: transparent; }
+.notification-row:focus, .notification-row:hover { background: transparent; }
+
+.notification {
+  background-color: alpha(@surface, 0.70);
+  border: 1px solid @outline;
+  margin: 4px 6px;
+  padding: 0;
+  box-shadow: 0 4px 12px alpha(@shadow, 0.5);
+}
+.notification.critical { border-color: @error; }
+
+/* pop-ups: a thin bar along the top that runs out with the timeout (duration set from settings) */
+.floating-notifications .notification:not(.critical) {
+  background-image: linear-gradient(@primary, @primary);
+  background-repeat: no-repeat;
+  background-position: left top;
+  background-size: 0% 3px;
+  animation: hyprminimal-countdown 3s linear forwards;
+}
+@keyframes hyprminimal-countdown {
+  from { background-size: 100% 3px; }
+  to   { background-size: 0% 3px; }
+}
+.notification-content { padding: 14px 16px; }
+.notification-default-action, .notification-action { background: transparent; border: none; color: @on_surface; }
+.notification-default-action:hover { background: alpha(@surface_var, 0.5); }
+.notification-action { margin: 0 6px 6px 6px; background: @surface_var; border: 1px solid @outline; }
+.notification-action:hover { background: @primary; color: @on_primary; }
+
+.summary  { color: @on_surface_var; font-size: 18px; font-weight: 700; }
+.body     { color: @on_surface_var; font-size: 17px; }
+.time     { color: @outline; font-size: 13px; margin-right: 28px; }
+.app-name { color: @on_surface; font-size: 15px; }
+.image    { margin-right: 10px; color: @on_surface; }
+
+/* no X on notifications: click to open/dismiss, "Clear all" in the control center */
+.close-button, .notification-group-close-button, .notification-group .close-button {
+  opacity: 0; min-width: 0; min-height: 0; margin: 0; padding: 0;
+  border: none; background: none; box-shadow: none; -gtk-icon-size: 0;
+}
+
+.inline-reply-entry { background: @surface_var; color: @on_surface; border: 1px solid @outline; }
+
+/* ---------- control center (Super+S), hangs under the bar ----------
+   One rhythm everywhere: 16px panel padding, 12px between blocks, 8px between tiles,
+   every card the same surface, border and corner. */
+.control-center {
+  background: alpha(@surface, 0.96);
+  border: 1px solid @outline;
+  padding: 16px;
+  box-shadow: 0 6px 18px alpha(@shadow, 0.55);
+}
+.control-center-list { background: transparent; }
+.control-center-list-placeholder { color: @outline; }
+
+/* "Notifications" header with the Clear all button, right above the list */
+.widget-title { margin: 4px 0 8px 0; padding: 0; }
+.widget-title > label { color: @on_surface_var; font-size: 16px; font-weight: 600; }
+.widget-title > button {
+  background: alpha(@surface_var, 0.6); color: @on_surface; border: 1px solid @outline;
+  padding: 4px 14px; box-shadow: none; border-radius: 0; font-size: 14px; font-weight: 600;
+}
+.widget-title > button:hover { background: @primary; color: @on_primary; border-color: @primary; }
+
+/* media card: flat card, no blurred album-art backdrop */
+.widget-mpris { margin: 0 0 12px 0; padding: 0; background: none; border: none; }
+.widget-mpris .widget-mpris-player {
+  background-color: alpha(@surface_var, 0.6); border: 1px solid @outline;
+  margin: 0; padding: 0; border-radius: 0; box-shadow: none;
+}
+.widget-mpris .widget-mpris-player .mpris-background { opacity: 0; }
+.widget-mpris .widget-mpris-player .mpris-overlay { background: transparent; padding: 14px 16px; }
+.widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-album-art { border-radius: 0; box-shadow: none; -gtk-icon-size: 72px; }
+.widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-title    { color: @on_surface_var; font-weight: 700; font-size: 16px; }
+.widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-subtitle { color: @on_surface; font-size: 14px; }
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button {
+  background: transparent; color: @on_surface; border: none; box-shadow: none;
+  border-radius: 999px; min-width: 34px; min-height: 34px; margin: 0 4px;
+}
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button:hover { background: @primary; color: @on_primary; }
+.widget-mpris > box > button { background: transparent; border: none; color: @on_surface; box-shadow: none; }
+
+/* tiles: 3 equal columns, same height, icon + label on one centred line */
+.widget-buttons-grid { padding: 0; margin: 0 0 4px 0; background: none; }
+.widget-buttons-grid > flowbox { padding: 0; margin: 0 -4px; }
+.widget-buttons-grid flowboxchild { padding: 0; margin: 0; }
+.widget-buttons-grid flowboxchild > button {
+  min-width: 205px;
+  min-height: 52px;
+  margin: 4px;
+  padding: 0 10px;
+  background: alpha(@surface_var, 0.6);
+  color: @on_surface_var;
+  border: 1px solid @outline;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+.widget-buttons-grid flowboxchild > button label { font-size: 15px; font-weight: 600; }
+.widget-buttons-grid flowboxchild > button:hover { background: alpha(@primary, 0.30); }
+.widget-buttons-grid flowboxchild > button.toggle:checked { background: @primary; color: @on_primary; border-color: @primary; }
+
+/* session: one full-width tile under the grid, same look, red on hover */
+.widget-buttons-grid#power { margin: 0 0 12px 0; }
+.widget-buttons-grid#power flowboxchild > button { min-height: 44px; }
+.widget-buttons-grid#power flowboxchild > button:hover { background: alpha(@error, 0.85); color: @on_primary; border-color: @error; }
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button image { -gtk-icon-size: 20px; }
+
+/* notifications listed in the control center: one flat card each, no extra group box */
+.control-center .notification-group, .control-center .notification-group.collapsed,
+.control-center .notification-row .notification-background {
+  background: none; border: none; box-shadow: none; padding: 0; margin: 0;
+}
+.control-center .notification { margin: 0 0 8px 0; box-shadow: none; background-color: alpha(@surface_var, 0.6); }
+.control-center-list { margin: 0; }
+.control-center .notification-row, .control-center .notification-group > *,
+.control-center .notification-group .notification-group-headers,
+.control-center .notification-group .notification-group-buttons { padding: 0; margin-left: 0; margin-right: 0; }
+.control-center scrolledwindow, .control-center list, .control-center listview { padding: 0; margin: 0; }
+.control-center .notification-group { margin: 0 -12px; }   /* swaync insets the list by 12px; line it up with the tiles */
