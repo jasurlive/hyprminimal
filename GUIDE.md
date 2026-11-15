@@ -25,6 +25,7 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 | `hyprminimal status` | Shows the mode (hyprminimal or Noctalia) and which components are running. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
 | `sudo hyprminimal-autologin enable\|disable\|status` | Boots straight to the hyprminimal lock screen, which then acts as the login screen (greetd). |
+| `sudo hyprminimal-greeter install\|uninstall\|status` | The login screen after you log out: lock-screen look with user selection (Up/Down or the arrows). Re-run install after changing wallpaper or monitors. |
 
 All of these are in `~/www/hyprminimal/bin/`.
 

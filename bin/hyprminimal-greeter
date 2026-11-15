@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# hyprminimal-greeter install|uninstall|status: the hyprminimal login screen (greetd greeter with user selection).
+# Shown after you log out (greetd [default_session]). Needs root: sudo hyprminimal-greeter install
+# Re-run install after changing the wallpaper or monitors to refresh the greeter's copies.
+set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+DEST=/usr/local/share/hyprminimal-greeter STATE=/var/cache/hyprminimal-greeter
+CONF=/etc/greetd/config.toml BAK=/etc/greetd/config.toml.pre-hyprminimal-greeter
+CMD="env XDG_CACHE_HOME=$STATE XDG_DATA_HOME=$STATE XDG_STATE_HOME=$STATE start-hyprland -- -c $DEST/hyprland.lua"
+OWNER=${SUDO_USER:-$(stat -c %U "$DIR")}
+HOMEDIR=$(getent passwd "$OWNER" | cut -d: -f6)
+
+# rewrite the [default_session] section of greetd's config (keeps [terminal] and [initial_session])
+set_default_session() {
+  awk -v cmd="$1" '
+    /^\[/ { skip = ($0 == "[default_session]") }
+    !skip { print }
+    END { print "[default_session]"; print "command = \"" cmd "\""; print "user = \"greeter\"" }
+  ' "$CONF" > "$CONF.new" && mv "$CONF.new" "$CONF" && chmod 644 "$CONF"
+}
+
+case ${1:-status} in
+  install)
+    [[ $EUID == 0 ]] || { echo "run with sudo"; exit 1; }
+    install -d -m 755 "$DEST"
+    install -m 644 "$DIR/greeter/greeter.py" "$DIR/greeter/style.css" "$DIR/greeter/hyprland.lua" "$DEST/"
+    [[ -f $HOMEDIR/.config/hypr/monitors.lua ]] && install -m 644 "$HOMEDIR/.config/hypr/monitors.lua" "$DEST/"
+    # wallpaper from the lock screen config, pre-blurred and dimmed like hyprlock
+    lock="$DIR/.generated/hyprlock.conf"; [[ -f $lock ]] || lock="$DIR/hyprlock/hyprlock.conf"
+    wp=$(awk -F' *= *' '/^[[:space:]]*path *=/ { print $2; exit }' "$lock"); wp=${wp/#\~/$HOMEDIR}
+    if [[ -f $wp ]]; then
+      magick "$wp" -resize 2560x1440^ -gravity center -extent 2560x1440 -blur 0x24 -modulate 70,120 "$DEST/background.png"
+      chmod 644 "$DEST/background.png"
+    else
+      echo "warning: wallpaper '$wp' not found, using a plain background"; rm -f "$DEST/background.png"
+    fi
+    install -d -m 755 -o greeter -g greeter "$STATE"
+    [[ -f $BAK ]] || cp -p "$CONF" "$BAK"
+    set_default_session "$CMD"
+    echo "greeter installed. Log out to see it. Undo: sudo $0 uninstall" ;;
+  uninstall)
+    [[ $EUID == 0 ]] || { echo "run with sudo"; exit 1; }
+    if [[ -f $BAK ]]; then cp -p "$BAK" "$CONF" && rm -f "$BAK"; fi
+    rm -rf "$DEST" "$STATE"
+    echo "greeter removed, previous greetd config restored" ;;
+  status)
+    grep -q "$DEST" "$CONF" && echo "greeter: installed" || echo "greeter: not installed" ;;
+  *) echo "usage: $0 install|uninstall|status"; exit 2 ;;
+esac
