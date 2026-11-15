@@ -120,7 +120,6 @@ Any key that is missing from the file falls back to its default.
 |---|---|---|
 | Wallpaper folder | `wallpaper.directory` | The folder whose thumbnails the page shows. They're cached in `~/.cache/hyprminimal/thumbs-v2`. |
 | Wallpaper | `wallpaper.path` | Click a thumbnail to set it. If the file is missing, the background is plain `#222436`. |
-| Transition | `wallpaper.transition` | `fade` |
 
 ### Notifications
 | Setting | Key | Range / values | Default |

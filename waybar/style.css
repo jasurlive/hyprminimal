@@ -53,19 +53,6 @@ tooltip label { color: @on_surface_var; }
   padding: 0 14px;
   margin: 5px 0;
 }
-/* playing: 6 still equalizer bars (pure CSS). Not animated on purpose: an endless CSS animation redraws the
-   bar, and Hyprland re-blurs it, on every frame for as long as music plays (~5% CPU on waybar alone). */
-#custom-media.playing {
-  padding-left: 64px;
-  background-color: @surface_var;
-  background-image: linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary), linear-gradient(@primary, @primary);
-  background-repeat: no-repeat;
-  background-position: 14px 50%, 21px 50%, 28px 50%, 35px 50%, 42px 50%, 49px 50%;
-  background-size: 4px 10px, 4px 18px, 4px 13px, 4px 22px, 4px 15px, 4px 9px;
-}
-
-
-
 
 #custom-notification { font-size: 23px; color: @on_surface; }
 /* unread notifications: solid blue bell (outline when none) */

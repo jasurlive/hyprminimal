@@ -206,7 +206,7 @@ Log: $RUN/${LOG[$c]}.log — after fixing run: hyprminimal restart"
 }
 
 stop_components() {
-  pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"
+  pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"; pkill -f "$DIR/scripts/workspace-watch.py"
   for c in "${COMPONENTS[@]}"; do stop_one "$c"; done
   pkill -x hyprsunset
   [[ -f $RUN/caffeine.pid ]] && kill "$(cat "$RUN/caffeine.pid")" 2>/dev/null; rm -f "$RUN/caffeine.pid"
@@ -232,9 +232,11 @@ start_components() {
   start_one hypridle
   # one "current player" for bar, panel and media keys (several Firefox tabs = several players)
   pgrep -x playerctld >/dev/null || spawn playerctld playerctld daemon
+  # close the control center when switching workspace (Super+1..9) or monitor
+  spawn workspace-watch python3 -I "$DIR/scripts/workspace-watch.py"
   [[ ${nl:-} == on ]] && spawn hyprsunset hyprsunset -t "${temp:-4000}"
   # settings app, started hidden so Super+I / Super+H open instantly
-  pgrep -f '[a]rchello_settings.py' >/dev/null || spawn settings "$DIR/bin/hyprminimal-settings" --preload
+  pgrep -f '[h]yprminimal_settings.py' >/dev/null || spawn settings "$DIR/bin/hyprminimal-settings" --preload
   if [[ ${RENDER_ERR:-} ]]; then set_error settings "Settings could not be applied: $RENDER_ERR"; else clear_error settings; fi
   [[ ${RENDER_ERR:-} ]] && notify critical "hyprminimal: settings could not be applied" \
     "$RENDER_ERR

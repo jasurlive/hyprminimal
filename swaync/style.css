@@ -58,7 +58,7 @@
   padding: 16px;
   box-shadow: 0 6px 18px alpha(@shadow, 0.55);
 }
-.control-center-list { background: transparent; }
+.control-center-list { background: transparent; margin: 0; }
 .control-center-list-placeholder { color: @outline; }
 
 /* "Notifications" header with the Clear all button, right above the list */
@@ -86,6 +86,7 @@
   border-radius: 999px; min-width: 34px; min-height: 34px; margin: 0 4px;
 }
 .widget-mpris .widget-mpris-player .mpris-overlay > box > button:hover { background: @primary; color: @on_primary; }
+.widget-mpris .widget-mpris-player .mpris-overlay > box > button image { -gtk-icon-size: 20px; }
 .widget-mpris > box > button { background: transparent; border: none; color: @on_surface; box-shadow: none; }
 
 /* tiles: 3 equal columns, rounded cards. Wi-Fi and System carry a second, centred info line
@@ -128,7 +129,6 @@
 .widget-buttons-grid.power flowboxchild > button { min-width: 92px; min-height: 44px; padding: 0 4px; border-radius: 22px; }
 .widget-buttons-grid.power flowboxchild > button label { font-size: 13px; font-weight: 600; }
 .widget-buttons-grid.power flowboxchild > button:hover { background: alpha(@error, 0.85); color: @on_primary; border-color: @error; }
-.widget-mpris .widget-mpris-player .mpris-overlay > box > button image { -gtk-icon-size: 20px; }
 
 /* notifications listed in the control center: one flat card each, no extra group box */
 .control-center .notification-group, .control-center .notification-group.collapsed,
@@ -136,9 +136,31 @@
   background: none; border: none; box-shadow: none; padding: 0; margin: 0;
 }
 .control-center .notification { margin: 0 0 8px 0; box-shadow: none; background-color: alpha(@surface_var, 0.6); }
-.control-center-list { margin: 0; }
 .control-center .notification-row, .control-center .notification-group > *,
 .control-center .notification-group .notification-group-headers,
 .control-center .notification-group .notification-group-buttons { padding: 0; margin-left: 0; margin-right: 0; }
 .control-center scrolledwindow, .control-center list, .control-center listview { padding: 0; margin: 0; }
-.control-center .notification-group { margin: 0 -12px; }   /* swaync insets the list by 12px; line it up with the tiles */
+/* swaync insets the list by 12px: line it up with the tiles on the left; on the right the cards stop 12px
+   short so the scrollbar runs in that lane beside them, never over a card or its buttons */
+.control-center .notification-group { margin: 0 12px 0 -12px; }
+
+/* grouped notifications: header row with the app name on the left and the collapse / close buttons on
+   the right, rounded like "Clear all", spaced apart and kept inside the panel instead of jammed at the edge */
+.control-center .notification-group .notification-group-headers { margin: 0 0 6px 12px; }
+.control-center .notification-group .notification-group-buttons { margin: 0 0 6px 0; }
+.control-center .notification-group .notification-group-buttons button {
+  opacity: 1; min-width: 30px; min-height: 30px; padding: 0; margin: 0 0 0 6px;
+  background: alpha(@surface_var, 0.6); color: @on_surface; border: 1px solid @outline;
+  border-radius: 10px; box-shadow: none; -gtk-icon-size: 14px;
+}
+.control-center .notification-group .notification-group-buttons button:hover {
+  background: @primary; color: @on_primary; border-color: @primary;
+}
+
+/* list scrollbar: a slim rounded slider on the far right */
+.control-center scrollbar, .control-center scrollbar trough { background: none; border: none; box-shadow: none; }
+.control-center scrollbar slider {
+  min-width: 4px; margin: 0; border: none; border-radius: 4px; background: alpha(@outline, 0.8);
+}
+.control-center scrollbar slider:hover { min-width: 6px; background: @primary; }
+.control-center scrollbar.vertical { margin-top: 36px; }   /* starts level with the first card, below the group header */

@@ -80,7 +80,6 @@ DEFAULTS = {
     "wallpaper": {
         "directory": str(HOME / "Pictures/Wallpapers"),
         "path": str(HOME / "Pictures/Wallpapers/wallhaven-zmq2yo_1920x1080.png"),
-        "transition": "fade",
     },
     "notifications": {"position": "top-right", "timeout": 3, "opacity": 0.70},
     "lock": {

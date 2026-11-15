@@ -29,8 +29,7 @@
   },
   "wallpaper": {
     "directory": "/home/jasur/Pictures/Wallpapers",
-    "path": "/home/jasur/Pictures/Wallpapers/wallhaven-zmq2yo_1920x1080.png",
-    "transition": "fade"
+    "path": "/home/jasur/Pictures/Wallpapers/wallhaven-zmq2yo_1920x1080.png"
   },
   "notifications": {
     "position": "top-right",
