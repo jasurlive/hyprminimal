@@ -7,6 +7,7 @@
 #   --autologin   boot straight into the hyprminimal lock screen (no separate login screen at boot)
 #   --no-greeter  don't set up the greetd login screen (start Hyprland yourself: start-hyprland)
 #   --reset-hypr  replace ~/.config/hypr with hyprminimal's defaults again (old one is backed up)
+#   --reset-kitty replace ~/.config/kitty/kitty.conf with hyprminimal's again (old one is backed up)
 #   --no-gpu      don't install GPU drivers
 #   -y, --yes     don't ask questions
 set -euo pipefail
@@ -15,16 +16,17 @@ DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 LINK="$HOME/.local/share/hyprminimal"   # stable path every config uses, wherever the repo was cloned
 HYPR="$HOME/.config/hypr"
 WALL="$HOME/Pictures/Wallpapers/hyprminimal.png"
-AUTOLOGIN=0 GREETER=1 RESET_HYPR=0 GPU=1 YES=0
+AUTOLOGIN=0 GREETER=1 RESET_HYPR=0 RESET_KITTY=0 GPU=1 YES=0
 
 for a in "$@"; do
   case $a in
     --autologin) AUTOLOGIN=1 ;;
     --no-greeter) GREETER=0 ;;
     --reset-hypr) RESET_HYPR=1 ;;
+    --reset-kitty) RESET_KITTY=1 ;;
     --no-gpu) GPU=0 ;;
     -y|--yes) YES=1 ;;
-    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $a (see --help)"; exit 2 ;;
   esac
 done
@@ -61,7 +63,7 @@ BASE=(
   # screenshots, clipboard, displays
   grim slurp hyprshot satty wl-clipboard wl-clip-persist nwg-displays
   # look
-  noto-fonts-emoji adwaita-cursors adwaita-icon-theme gnome-themes-extra
+  noto-fonts-emoji ttf-jetbrains-mono-nerd adwaita-cursors adwaita-icon-theme gnome-themes-extra
 )
 mapfile -t SHELL_PKGS < <(awk '!/^[[:space:]]*(#|$)/ {print $1}' "$DIR/packages.txt")
 
@@ -133,6 +135,25 @@ elif [[ -d $HYPR && -n $(ls -A "$HYPR" 2>/dev/null) ]]; then
 else
   install_hypr
 fi
+
+# ------------------------------------------------------------------ terminal (kitty + bash)
+step "Installing the kitty terminal config"
+KITTY="$HOME/.config/kitty/kitty.conf"
+mkdir -p "${KITTY%/*}"
+if [[ -f $KITTY ]] && grep -q '^# hyprminimal kitty config' "$KITTY" && (( ! RESET_KITTY )); then
+  echo "  already installed, kept your edits (--reset-kitty to start over)"
+elif [[ -s $KITTY ]]; then
+  bak="$KITTY.pre-hyprminimal-$(date +%Y%m%d-%H%M%S)"
+  if (( RESET_KITTY )) || ask "  $KITTY already exists. Move it to $bak and use hyprminimal's?"; then
+    mv "$KITTY" "$bak"; cp "$DIR/kitty/kitty.conf" "$KITTY"; echo "  old config saved in $bak"
+  else
+    warn "kept your kitty config. For hyprminimal colours add to it:"
+    echo "      include ~/.local/share/hyprminimal/kitty/colors.conf"
+  fi
+else
+  cp "$DIR/kitty/kitty.conf" "$KITTY"
+fi
+pgrep -x kitty >/dev/null && pkill -USR1 -x kitty || true   # live-reload open terminals
 
 # ------------------------------------------------------------------ dark theme for GTK/Qt apps
 mkdir -p "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"
