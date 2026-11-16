@@ -39,10 +39,9 @@ def row(num, app, width, tag=""):
     icon = app.get_icon()
     if icon:
         opts.append(f"icon\x1f{icon.to_string()}")
-    words = [f"{num} {name}", "rm"]   # "rm": typing "rm fire" keeps Firefox in the list (uninstall)
-    if hasattr(app, "get_keywords"):   # .desktop apps: also find them by generic name / keywords ("browser")
-        words += filter(None, [app.get_generic_name(), *(app.get_keywords() or [])])
-    search = " ".join(words).replace("\n", " ").replace("\0", "").replace("\x1f", "")
+    # search only the number + visible name (keywords/generic names made "te" hit Firefox via "Internet")
+    # "rm": typing "rm fire" keeps Firefox in the list (uninstall)
+    search = f"{name} {num} rm".replace("\n", " ").replace("\0", "").replace("\x1f", "")   # name first: ranks "Te…" above "…test…"
     return search + "\0" + "\x1f".join(opts)
 
 

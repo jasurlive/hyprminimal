@@ -25,7 +25,6 @@ try:
 except (ValueError, ImportError):
     LS = None
 
-SCREENSHOT_TOOLS = "slurp|grim|hyprpicker|hyprshot|wayfreeze"
 POPUP_TOP = 8         # gap under the bar (its exclusive zone already reserves bar + margin)
 POPUP_RIGHT = 4       # right edge in line with the bar (bar margin is 4)
 CSS = """
@@ -206,9 +205,6 @@ class Panel(Gtk.Window):
         self._fit_labels(box)
         import hyprminimal_settings
         hyprminimal_settings.pointerize(box)          # hand pointer on every button/slider
-        self._opened_at = 0.0
-        self._had_focus = False
-        self.connect("notify::is-active", self._on_active)
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", lambda _c, kv, *_: (self.manager.close() or True) if kv == Gdk.KEY_Escape else False)
         self.add_controller(keys)
@@ -222,24 +218,6 @@ class Panel(Gtk.Window):
             Panel._fit_labels(w)
             w = w.get_next_sibling()
 
-    def _on_active(self, *_):
-        """Close like other windows when focus moves elsewhere (click outside, other window, Super+key)."""
-        if self.is_active():
-            self._had_focus = True
-        elif self._had_focus and self.get_visible() and time.monotonic() - self._opened_at > 0.25:
-            self._had_focus = False
-            GLib.timeout_add(120, self._close_unless_screenshot)
-
-    def _close_unless_screenshot(self):
-        """Print Screen (hyprshot/slurp/hyprpicker) takes keyboard focus: keep the panel so it can be captured."""
-        if subprocess.run(["pgrep", "-x", SCREENSHOT_TOOLS], capture_output=True).returncode != 0:
-            if self.manager.current and self.panels_is_me():
-                self.manager.close()
-        return False
-
-    def panels_is_me(self):
-        return self.manager.panels.get(self.manager.current) is self
-
     def build(self, box):
         raise NotImplementedError
 
@@ -250,8 +228,6 @@ class Panel(Gtk.Window):
         return 0      # seconds between refreshes while open (0 = never)
 
     def opened(self):
-        self._opened_at = time.monotonic()
-        self._had_focus = False
         if self._tick:                      # never stack timers (e.g. two opens in a row)
             GLib.source_remove(self._tick)
             self._tick = None
@@ -1177,8 +1153,9 @@ class PanelManager:
         if self.current == kind:
             self.close()
             return
+        # no outside-click catcher for panels (it swallowed the click): Hyprland closes the popup on a
+        # click outside it instead (hypr/layerrules.lua), and the click still reaches the window
         self.close()
-        self._show_catcher()
         p = self._get(kind)
         p.opened()
         p.present()

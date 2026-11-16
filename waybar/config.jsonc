@@ -109,7 +109,9 @@
     // the battery outline is drawn in CSS (hyprminimal-settings), the number sits inside it
     "states": { "warning": 20, "critical": 10 },
     "format": "{capacity}",
-    "format-charging": "{capacity}",
+    // linen-yellow bolt while charging, same size as the number (colour = state_bolt in colors/palette.css;
+    // Pango markup can't read @define-color, so it's repeated here)
+    "format-charging": "<span foreground='#e8d5a6'>󱐋</span>{capacity}",
     "format-plugged": "{capacity}",
     "tooltip-format": "{capacity}%, {timeTo}",
     "on-click": "hyprminimal-msg panel battery"

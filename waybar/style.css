@@ -60,8 +60,8 @@ tooltip label { color: @on_surface_var; }
 #custom-notification.inhibited-notification, #custom-notification.dnd-inhibited-notification { color: @primary; }
 #battery             { color: @on_surface; }
 #battery.charging, #battery.plugged { color: @state_charge; }
-#battery.warning:not(.charging)  { color: @state_warn; }
-#battery.critical:not(.charging) { color: @state_crit; }
+#battery.warning:not(.charging)  { color: @state_low; }
+#battery.critical:not(.charging) { color: @state_low; }
 #network, #custom-net { color: @on_surface; }
 #custom-net.offline { color: @outline; }
 

@@ -3,7 +3,8 @@
 @import "theme.rasi"
 
 configuration {
-    sort:     false;     /* keep alphabetical order (and app numbers) while searching */
+    sort:     true;      /* rank while typing: name starting with the text first (empty input keeps A-Z + recent) */
+    sorting-method: "fzf";
     matching: "normal";
 }
 

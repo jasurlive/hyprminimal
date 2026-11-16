@@ -43,14 +43,26 @@ The bar's network speed and the watchdog are small C helpers (`helpers/`): no po
 redrawn when its text changes, and nothing animates while music plays (an animated bar is redrawn and re-blurred
 every frame). CPU/RAM widgets update every 5 s.
 
-## Try it
+## Install
+
+On a fresh Arch Linux (any machine, as your normal user with sudo):
 
 ```bash
-sudo pacman -S --needed $(grep -v '^#' ~/www/hyprminimal/packages.txt)
-~/www/hyprminimal/bin/hyprminimal start
-~/www/hyprminimal/bin/hyprminimal stop
-~/www/hyprminimal/bin/hyprminimal restart   # after editing a config
-~/www/hyprminimal/bin/hyprminimal status
+sudo pacman -S --needed git
+git clone https://github.com/jasurlive/hyprminimal ~/hyprminimal
+cd ~/hyprminimal && ./install.sh     # then: sudo reboot
+```
+
+It installs Hyprland, hyprminimal and a base desktop (PipeWire, NetworkManager, Bluetooth, GPU drivers,
+Firefox, Thunar, kitty) from the official repos only, puts a default Hyprland config in `~/.config/hypr`
+(an existing one is backed up first), and sets up the greetd login screen. Options: `--autologin`,
+`--no-greeter`, `--reset-hypr`, `--no-gpu`, `-y` (`./install.sh --help`). Re-running it is safe.
+
+The repo can live anywhere: it is linked at `~/.local/share/hyprminimal`, and the commands in `~/.local/bin`.
+
+```bash
+hyprminimal start | stop | status
+hyprminimal restart   # after editing a config
 ```
 
 Logs: `$XDG_RUNTIME_DIR/hyprminimal/*.log`. hyprminimal starts at login.
@@ -59,6 +71,7 @@ Settings reference, crash recovery and troubleshooting: [GUIDE.md](GUIDE.md).
 
 ## Changes outside this folder
 
-Originals are backed up in `~/.config/hypr/.pre-hyprminimal-backup/`.
+The default Hyprland config is in `hypr/config/`. Settings backs up `keybind.lua` edits in
+`~/.config/hypr/.pre-hyprminimal-backup/`.
 - `keybind.lua`, `Scripts/accel-step.sh`: call `bin/hyprminimal-msg`.
 - `hyprland.lua`: last line loads `hypr/layerrules.lua` (blur).

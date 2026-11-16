@@ -4,3 +4,5 @@ settings.json.tmp
 __pycache__/
 **/__pycache__/
 *.py[cod]
+# per-user settings (Settings app writes it; defaults live in settings/hyprminimal_settings.py)
+settings.json

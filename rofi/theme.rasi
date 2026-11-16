@@ -19,7 +19,7 @@
 
 configuration {
     show-icons:          true;
-    icon-theme:          "Yaru-blue-dark";
+    icon-theme:          "Papirus-Dark";
     hover-select:        true;
     me-select-entry:     "MousePrimary";
     me-accept-entry:     "!MousePrimary";

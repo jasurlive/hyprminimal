@@ -3,11 +3,11 @@
 [terminal]
 vt = 1
 
-# boot: log in as jasur without a password; Hyprland then shows hyprlock first
-# (see ~/.config/hypr/startup.lua, HYPRMINIMAL_AUTOLOGIN). Runs once per boot only.
+# boot: log in as @USER@ without a password; Hyprland then shows hyprlock first
+# (@USER@ is filled in on enable; see ~/.config/hypr/startup.lua, HYPRMINIMAL_AUTOLOGIN). Runs once per boot only.
 [initial_session]
 command = "env HYPRMINIMAL_AUTOLOGIN=1 /usr/bin/start-hyprland"
-user = "jasur"
+user = "@USER@"
 
 # after logging out: the hyprminimal greeter (installed by: sudo bin/hyprminimal-greeter install)
 [default_session]

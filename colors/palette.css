@@ -16,4 +16,6 @@
 @define-color state_charge #8ea4c8;   /* dusty blue  */
 @define-color state_warn   #c8b48e;   /* muted sand  */
 @define-color state_crit   #cf8f9a;   /* dusty rose  */
+@define-color state_low    #e5534b;   /* battery low: clear red */
+@define-color state_bolt   #e8d5a6;   /* charging bolt: linen yellow (also hardcoded in waybar/config.jsonc) */
 @define-color linen        #e6ddd0;   /* Scandinavian linen: warm off-white */

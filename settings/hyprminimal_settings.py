@@ -19,7 +19,7 @@ import threading
 import time
 from pathlib import Path
 
-DIR = Path(__file__).resolve().parent.parent           # ~/www/hyprminimal
+DIR = Path(__file__).resolve().parent.parent           # the cloned repo (linked at ~/.local/share/hyprminimal)
 SETTINGS = DIR / "settings.json"
 GEN = DIR / ".generated"
 RUN = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "hyprminimal"
@@ -79,11 +79,11 @@ DEFAULTS = {
     },
     "wallpaper": {
         "directory": str(HOME / "Pictures/Wallpapers"),
-        "path": str(HOME / "Pictures/Wallpapers/wallhaven-zmq2yo_1920x1080.png"),
+        "path": str(HOME / "Pictures/Wallpapers/hyprminimal.png"),   # made by install.sh
     },
     "notifications": {"position": "top-right", "timeout": 3, "opacity": 0.70},
     "lock": {
-        "wallpaper": str(HOME / "Pictures/Wallpapers/wallhaven-ox36l9_3840x2160.png"),
+        "wallpaper": str(HOME / "Pictures/Wallpapers/hyprminimal.png"),
         "lock_minutes": 0, "screen_off_minutes": 0, "suspend_minutes": 0, "lock_before_sleep": True,
     },
     "nightlight": {"enabled": False, "temperature": 4000},
@@ -198,7 +198,8 @@ def battery_css(bar_h, icon=20, weight=600):
            f"  background-position: {', '.join(f'{x}px {yy}px' for x, yy, _, _ in rects)};\n"
            f"  background-size: {', '.join(f'{rw}px {rh}px' for _, _, rw, rh in rects)};\n"
            "}\n")
-    for cls, col in (("warning", "@state_warn"), ("critical", "@state_crit"),
+    # low battery is red; charging comes last so it wins over warning/critical
+    for cls, col in (("warning", "@state_low"), ("critical", "@state_low"),
                      ("charging", "@state_charge"), ("plugged", "@state_charge")):
         css += f"#battery.{cls} {{ color: {col};\n" + block(col) + "}\n"
     return css
@@ -1504,6 +1505,10 @@ def run_gui(start_page):
             ca = Gio.SimpleAction.new("catch", GLib.VariantType.new("s"))
             ca.connect("activate", lambda _a, v: self.panels.catch(v.get_string()))
             self.add_action(ca)
+            # Hyprland (hypr/layerrules.lua): a click outside the popup or focus moving to a window
+            pc = Gio.SimpleAction.new("panel-close", None)
+            pc.connect("activate", lambda *_: self.panels.current and self.panels.close())
+            self.add_action(pc)
             quit_a = Gio.SimpleAction.new("quit", None)
             quit_a.connect("activate", lambda *_: self.quit())
             self.add_action(quit_a)
