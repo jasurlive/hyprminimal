@@ -1,10 +1,7 @@
 # hyprminimal
 A Noctalia look-alike built only from official Arch packages (no AUR).
 
-<img width="60%" alt="image" src="https://github.com/user-attachments/assets/77092ad3-4b8d-40e1-b797-7e412b52f5ae" />
-<img width="60%" alt="image" src="https://github.com/user-attachments/assets/6446f98f-2204-4486-8a6f-7316f1f0f23a" />
-<img width="60%" alt="image" src="https://github.com/user-attachments/assets/ce25edcb-fce8-47e2-8cde-30835dd718b3" />
-<img width="60%" alt="image" src="https://github.com/user-attachments/assets/6fb4a0a4-c44a-4506-af12-f2c4f04f3041" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/eefb15bc-68b6-4ba6-a3c8-8cec93c29ac0" />
 
 | Noctalia | hyprminimal | Config |
 |---|---|---|
