@@ -29,7 +29,7 @@ POPUP_TOP = 8         # gap under the bar (its exclusive zone already reserves b
 POPUP_RIGHT = 4       # right edge in line with the bar (bar margin is 4)
 CSS = """
 window.hyprminimal-panel { background: transparent; }
-window.hyprminimal-catcher, window.hyprminimal-hover { background: rgba(0, 0, 0, 0.01); }   /* needs real pixels or no buffer is attached */
+window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0, 0, 0.01); }   /* needs real pixels or no buffer is attached */
 .panel {
   background: rgba(31, 35, 53, 0.96); border: 1px solid #4b517a; padding: 18px 20px;
   color: #c0caf5; box-shadow: 0 6px 18px rgba(24, 27, 42, 0.55);
@@ -210,10 +210,6 @@ class Panel(Gtk.Window):
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", lambda _c, kv, *_: (self.manager.close() or True) if kv == Gdk.KEY_Escape else False)
         self.add_controller(keys)
-        motion = Gtk.EventControllerMotion()       # a hover-opened popup stays while the pointer is on it
-        motion.connect("enter", lambda *_: self.manager.hover_hold())
-        motion.connect("leave", lambda *_: self.manager.hover_release())
-        self.add_controller(motion)
 
     @staticmethod
     def _fit_labels(root):
@@ -1110,19 +1106,19 @@ class WifiPanel(Panel):
         GLib.timeout_add(300, lambda: (self._load(rescan=True), False)[1])   # then a fresh scan
 
 
-# --------------------------------------------------------------------------- clock hover zone
-class HoverZone(Gtk.Window):
-    """Invisible strip over the bar's date + clock (waybar has no hover hook): hovering shows the
-    calendar, a click pins it open (or closes it), right click opens the control center."""
+# --------------------------------------------------------------------------- clock click zone
+class ClockZone(Gtk.Window):
+    """Invisible strip over the bar's date + clock: a click opens the calendar (or closes it),
+    right click opens the control center. Hovering does nothing."""
 
     def __init__(self, app, manager, monitor, zone):
         super().__init__(application=app, decorated=False)
-        self.add_css_class("hyprminimal-hover")
+        self.add_css_class("hyprminimal-clickzone")
         self.manager = manager
         self.monitor = monitor
         w, h = int(zone["width"]), int(zone["height"])
         LS.init_for_window(self)
-        LS.set_namespace(self, "hyprminimal-hover")
+        LS.set_namespace(self, "hyprminimal-clickzone")
         LS.set_layer(self, LS.Layer.OVERLAY)            # above waybar (layer "top")
         LS.set_keyboard_mode(self, LS.KeyboardMode.NONE)
         LS.set_exclusive_zone(self, -1)                 # sits on the bar, not below it
@@ -1138,10 +1134,6 @@ class HoverZone(Gtk.Window):
         self.set_child(box)
         self.set_default_size(w, h)
         self.set_cursor_from_name("pointer")
-        motion = Gtk.EventControllerMotion()
-        motion.connect("enter", lambda *_: manager.hover_open(self.monitor))
-        motion.connect("leave", lambda *_: manager.hover_release())
-        self.add_controller(motion)
         click = Gtk.GestureClick(button=0)
         click.connect("pressed", self._click)
         self.add_controller(click)
@@ -1164,8 +1156,6 @@ class PanelManager:
         self.current = None
         self.catcher = None
         self.external = None    # a popup run as its own program (rofi): closed with pkill
-        self.hover = False      # the open popup was opened by hovering the clock (closes when the pointer leaves)
-        self._hover_timer = None
         self.zones = []
         self.css = Gtk.CssProvider()
         self.css.load_from_string(CSS)
@@ -1219,54 +1209,27 @@ class PanelManager:
             return
         self.open(kind)
 
-    def open(self, kind, hover=False, monitor=None):
+    def open(self, kind, monitor=None):
         # no outside-click catcher for panels (it swallowed the click): Hyprland closes the popup on a
         # click outside it instead (hypr/layerrules.lua), and the click still reaches the window
         self.close()
         p = self._get(kind)
         if LS:
-            # hover never takes the keyboard from the window you're typing in
-            LS.set_keyboard_mode(p, LS.KeyboardMode.NONE if hover else LS.KeyboardMode.ON_DEMAND)
+            LS.set_keyboard_mode(p, LS.KeyboardMode.ON_DEMAND)
             LS.set_monitor(p, monitor)
         p.opened()
         p.present()
         self.current = kind
-        self.hover = hover
 
-    # ---- clock: hover shows the calendar, click pins it
-    def hover_open(self, monitor):
-        self.hover_hold()
-        if self.current is None and not self.external:
-            self.open("calendar", hover=True, monitor=monitor)
-
-    def hover_hold(self):
-        if self._hover_timer:
-            GLib.source_remove(self._hover_timer)
-            self._hover_timer = None
-
-    def hover_release(self):
-        if self.hover and not self._hover_timer:
-            self._hover_timer = GLib.timeout_add(350, self._hover_close)
-
-    def _hover_close(self):
-        self._hover_timer = None
-        if self.hover:
-            self.close()
-        return False
-
+    # ---- clock: a click toggles the calendar
     def clock_click(self, monitor):
-        if self.current == "calendar" and self.hover:      # pin it: stays until a click outside / Esc
-            self.hover_hold()
-            self.hover = False
-            if LS:
-                LS.set_keyboard_mode(self.panels["calendar"], LS.KeyboardMode.ON_DEMAND)
-        elif self.current == "calendar":
+        if self.current == "calendar":
             self.close()
         else:
             self.open("calendar", monitor=monitor)
 
     def reload_zones(self):
-        """(Re)build the clock hover strips from .generated/clock_zone.json, one per monitor."""
+        """(Re)build the clock click strips from .generated/clock_zone.json, one per monitor."""
         for z in self.zones:
             z.destroy()
         self.zones = []
@@ -1281,7 +1244,7 @@ class PanelManager:
             return
         mons = Gdk.Display.get_default().get_monitors()
         for i in range(mons.get_n_items()):
-            z = HoverZone(self.app, self, mons.get_item(i), zone)
+            z = ClockZone(self.app, self, mons.get_item(i), zone)
             z.present()
             self.zones.append(z)
 
@@ -1304,8 +1267,6 @@ class PanelManager:
         self._show_catcher()
 
     def close(self):
-        self.hover_hold()
-        self.hover = False
         if self.external:
             subprocess.run(["pkill", "-x", self.external])
             self.external = None
