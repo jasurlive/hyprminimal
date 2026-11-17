@@ -55,9 +55,7 @@ refullscreen_after_bar() {
   ( unlock_fd
     for _ in $(seq 50); do hyprctl layers 2>/dev/null | grep -q 'namespace: waybar' && break; sleep 0.1; done
     sleep 0.2
-    hyprctl clients -j 2>/dev/null | python3 -Ic 'import json,sys
-for c in json.load(sys.stdin):
-    if c.get("fullscreen") == 2: print(c["address"])' | while read -r a; do
+    hyprctl clients 2>/dev/null | awk '/^Window /{a="0x"$2} /^\tfullscreen: 2$/{print a}' | while read -r a; do
       hyprctl dispatch "hl.dsp.window.fullscreen({ window = \"address:$a\" })" >/dev/null
       hyprctl dispatch "hl.dsp.window.fullscreen({ window = \"address:$a\" })" >/dev/null
     done ) </dev/null >/dev/null 2>&1 &

@@ -1,8 +1,9 @@
-/* hyprminimal launcher: minimal numbered list (scripts/launcher.py). Search on top,
+/* hyprminimal launcher: minimal numbered list (helpers/launcher.c). Search on top,
    one line per app, dim numbers, last used app pinned first. */
 @import "theme.rasi"
 
 configuration {
+    show-icons: false;   /* no app icons: opens faster */
     sort:     true;      /* rank while typing: name starting with the text first (empty input keeps A-Z + recent) */
     sorting-method: "fzf";
     matching: "normal";
@@ -24,7 +25,7 @@ inputbar {
     padding: 10px 14px; spacing: 12px;
     children: [ prompt, entry ];
 }
-prompt   { font: "Symbols Nerd Font 16"; text-color: @primary; vertical-align: 0.5; }   /* icon from launcher.py -p */
+prompt   { font: "Symbols Nerd Font 16"; text-color: @primary; vertical-align: 0.5; }   /* icon from launcher.c -p */
 entry    {
     font: "Noto Sans 13";
     placeholder: "Search, type a number, or rm NAME to uninstall"; placeholder-color: #737aa2;
@@ -40,5 +41,4 @@ element selected.normal, element selected.active {
     text-color:       @on-surface-v;
     border: 0;
 }
-element-icon { size: 30px; vertical-align: 0.5; }
 element-text { font: "Noto Sans 13"; vertical-align: 0.5; }

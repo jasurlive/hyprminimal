@@ -5,7 +5,9 @@ export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
 cmd=${1:-}; shift
 
 case $cmd in
-  launcher)       pkill -x rofi || exec python3 -I "$DIR/scripts/launcher.py" ;;   # numbered, last used first
+  launcher)       pkill -x rofi && exit   # numbered, last used first: C helper, bash fallback without gcc
+                  [[ -x $DIR/.generated/bin/launcher ]] && exec "$DIR/.generated/bin/launcher"
+                  exec "$DIR/scripts/launcher.sh" ;;
   lock)           # hyprlock can crash on resume (AMD/Mesa abort when the screen comes back), which leaves
                   # Hyprland's red "lockscreen app died" page. Hyprland lets a new locker take over the
                   # lock (misc.allow_session_lock_restore), so restart hyprlock until it exits 0 (= unlocked).
