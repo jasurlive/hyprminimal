@@ -2,6 +2,7 @@
 //  - GTK4 CSS has no "cursor" property, so every clickable widget gets a hand pointer when mapped
 //  - buttons get hover text from $HYPRMINIMAL_SWAYNC_TOOLTIPS (lines: label-substring<TAB>tooltip)
 //  - control center: keys 1-9 flip the toggle tiles in reading order, each tile shows its number
+//  - control center: the "N notifications" header follows swaync's live count (D-Bus SubscribeV2 signal)
 //  - control center: live tile labels without a config reload. scripts/control-center.sh writes
 //    $XDG_RUNTIME_DIR/hyprminimal/cc/labels (lines: label-substring<TAB>new label, \n escaped);
 //    the file "expanded" in that folder grows the notification list, its absence shrinks it
@@ -15,6 +16,7 @@
 static GPtrArray *tips;      // pairs: needle, text
 static GtkWidget *cc;        // the control-center window, once seen
 static char *ccdir;          // $XDG_RUNTIME_DIR/hyprminimal/cc
+static guint notif_count = G_MAXUINT;   // live, from swaync's own D-Bus signal; G_MAXUINT = not known yet
 
 static void load_tips(void) {
   const char *path = g_getenv("HYPRMINIMAL_SWAYNC_TOOLTIPS");
@@ -99,7 +101,7 @@ static void badge(GtkWidget *b, guint n) {
   GtkWidget *k = gtk_label_new(num);
   gtk_widget_add_css_class(k, "key-hint");
   gtk_widget_set_halign(k, GTK_ALIGN_END);
-  gtk_widget_set_valign(k, GTK_ALIGN_START);
+  gtk_widget_set_valign(k, GTK_ALIGN_CENTER);   // a keycap at the middle right
   gtk_widget_set_can_target(k, FALSE);
   gtk_overlay_add_overlay(GTK_OVERLAY(ov), k);
 }
@@ -131,6 +133,14 @@ static void cc_apply(void) {
         g_free(text);
       }
       *tab = '\t';
+    }
+    // the "N notifications" header follows the live count (Clear all, dismissals, new arrivals)
+    if (notif_count != G_MAXUINT && strstr(gtk_label_get_text(l), "otification")) {
+      char *text = notif_count == 0 ? g_strdup("󰂚   No notifications")
+        : g_strdup_printf("󰂚   %u notification%s   %s", notif_count, notif_count == 1 ? "" : "s",
+                          expanded ? "󰅃" : "󰅀");
+      if (strcmp(text, gtk_label_get_text(l))) gtk_label_set_text(l, text);
+      g_free(text);
     }
   }
   for (guint i = 0; i < toggles->len && i < 9; i++) badge(toggles->pdata[i], i + 1);
@@ -175,6 +185,38 @@ static gboolean on_key(GtkEventControllerKey *k, guint keyval, guint code, GdkMo
   return hit;
 }
 
+// notification count: swaync emits SubscribeV2(count, dnd, cc_open, inhibited) on every change
+// (older versions: Subscribe(count, dnd, cc_open)); the bar's counter uses it too; we hear our own process's signal through the bus. NotificationCount seeds the value.
+#define SWAYNC_NAME "org.erikreider.swaync.cc"
+#define SWAYNC_PATH "/org/erikreider/swaync/cc"
+static void on_count_signal(GDBusConnection *c, const char *s, const char *p, const char *i,
+                            const char *sig, GVariant *params, gpointer d) {
+  (void)c; (void)s; (void)p; (void)i; (void)sig; (void)d;
+  if (!g_str_has_prefix(g_variant_get_type_string(params), "(u")) return;
+  g_variant_get_child(params, 0, "u", &notif_count);
+  g_idle_add(apply_idle, NULL);   // after swaync has finished removing/adding the rows
+}
+static void on_count_reply(GObject *bus, GAsyncResult *res, gpointer d) {
+  (void)d;
+  GVariant *v = g_dbus_connection_call_finish(G_DBUS_CONNECTION(bus), res, NULL);
+  if (!v) return;
+  g_variant_get(v, "(u)", &notif_count);
+  g_variant_unref(v);
+  cc_apply();
+}
+static void count_watch(void) {
+  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+  if (!bus) return;
+  g_dbus_connection_signal_subscribe(bus, NULL, SWAYNC_NAME, "SubscribeV2", SWAYNC_PATH, NULL,
+                                     G_DBUS_SIGNAL_FLAGS_NONE, on_count_signal, NULL, NULL);
+  g_dbus_connection_signal_subscribe(bus, NULL, SWAYNC_NAME, "Subscribe", SWAYNC_PATH, NULL,
+                                     G_DBUS_SIGNAL_FLAGS_NONE, on_count_signal, NULL, NULL);
+  g_dbus_connection_call(bus, SWAYNC_NAME, SWAYNC_PATH, SWAYNC_NAME, "NotificationCount", NULL,
+                         G_VARIANT_TYPE("(u)"), G_DBUS_CALL_FLAGS_NO_AUTO_START, 1000, NULL,
+                         on_count_reply, NULL);
+  g_object_unref(bus);   // the shared session bus stays alive inside swaync
+}
+
 static void cc_found(GtkWidget *win) {
   if (cc == win) return;
   cc = win;
@@ -190,6 +232,7 @@ static void cc_found(GtkWidget *win) {
     mon = g_file_monitor_directory(dir, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
     if (mon) g_signal_connect(mon, "changed", G_CALLBACK(on_dir_change), NULL);
     g_object_unref(dir);
+    count_watch();
   }
 }
 

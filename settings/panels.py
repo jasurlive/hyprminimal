@@ -566,32 +566,39 @@ class NetworkPanel(Panel):
 
 
 # --------------------------------------------------------------------------- media
-class Equalizer(Gtk.DrawingArea):
-    """Big animated equalizer. There is no audio data, so it plays a beat-like pattern:
-    a kick every ~0.47 s lifts the low bars, the rest flicker, everything eases down.
-    Animates only while visible and playing; settles flat and stops when paused."""
+class Equalizer(Gtk.Label):
+    """Equalizer as plain text, like the bar's (scripts/media.sh): braille characters, each 2 columns
+    of 4 dots, so CHARS characters are 2*CHARS slim dotted bars. While visible and playing the label
+    text changes FPS times a second (no drawing code, no per-frame maths beyond a few random ints);
+    paused or hidden it is a static row of dots with no timer at all. There is no audio data: every
+    bar jumps to a new random height each frame, the middle bars may reach higher than the edges."""
 
-    BARS = 56
-    BAR_W = 3.0                 # px; thin rounded pills
-    COLOR = (0x7a / 255, 0x88 / 255, 0xcf / 255)   # @primary, same blue as the bar's equalizer
+    CHARS = 17                   # 34 bars: fits the 400px popup without being cut off
+    FPS = 4
+    SIZE = 26                    # pt
+    GAP = -6000                  # pango units: pulls characters together so all bars are evenly spaced
+    L = (0, 0x40, 0x44, 0x46, 0x47)   # left column, 0-4 dots from the bottom (dots 7,3,2,1)
+    R = (0, 0x80, 0xA0, 0xB0, 0xB8)   # right column (dots 8,6,5,4)
 
     def __init__(self):
-        super().__init__(content_height=78, hexpand=True)
+        super().__init__(css_classes=["accent", "eq"], halign=Gtk.Align.CENTER, hexpand=True)
         import random
         self.rand = random.Random()
-        self.h = [0.06] * self.BARS
-        # bell-shaped envelope: the middle reaches highest, the edges stay low
-        self.env = [0.25 + 0.75 * math.sin(math.pi * (i + 0.5) / self.BARS) ** 1.5 for i in range(self.BARS)]
-        self.target = [0.06] * self.BARS
+        n = 2 * self.CHARS
+        # bell-shaped ceiling: edges reach 2 dots, the middle 4
+        self.top = [2 + round(2 * math.sin(math.pi * (i + 0.5) / n) ** 1.5) for i in range(n)]
+        self.h = [1] * n
         self.playing = False
         self._tick = None
-        self._last_beat = 0.0
-        self._last_flick = 0.0
-        self.set_draw_func(self._draw)
+        self._render()
         self.connect("map", lambda *_: self._ensure_tick())
         self.connect("unmap", lambda *_: self._stop())
 
-    FPS = 30                    # timer-driven, not per display frame (120 Hz panels would redraw 4x as often)
+    def _render(self):
+        h, L, R = self.h, self.L, self.R
+        text = "".join(chr(0x2800 + L[h[i]] + R[h[i + 1]]) for i in range(0, len(h), 2))
+        self.set_markup(f"<span font_family='DejaVu Sans' size='{self.SIZE * 1024}' "
+                        f"letter_spacing='{self.GAP}'>{text}</span>")
 
     def set_playing(self, playing):
         self.playing = playing
@@ -608,54 +615,16 @@ class Equalizer(Gtk.DrawingArea):
 
     def _on_tick(self):
         root = self.get_root()
-        if not self.get_mapped() or root is None or not root.get_visible():   # never animate while hidden
+        if not self.get_mapped() or root is None or not root.get_visible() or not self.playing:
+            self.h = [1] * len(self.h)          # rest: one flat row of dots, then no timer
+            self._render()
             self._tick = None
             return False
-        t = GLib.get_monotonic_time() / 1e6
         r = self.rand
-        if self.playing:
-            if t - self._last_beat > 0.47:                 # kick
-                self._last_beat = t
-                for i in range(self.BARS):
-                    self.target[i] = min(1.0, self.env[i] * r.uniform(0.55, 1.0))
-            elif t - self._last_flick > 0.09:              # hats / melody
-                self._last_flick = t
-                for i in range(self.BARS):
-                    if r.random() < 0.45:
-                        self.target[i] = max(self.target[i] * 0.7, self.env[i] * r.uniform(0.15, 0.8))
-            for i in range(self.BARS):
-                self.target[i] = max(0.06, self.target[i] * 0.912)   # decay between hits (0.955/frame at 60 fps)
-        else:
-            self.target = [0.04] * self.BARS
-        moving = False
-        for i in range(self.BARS):
-            k = 0.70 if self.target[i] > self.h[i] else 0.33        # fast attack, slow release (30 fps)
-            nh = self.h[i] + (self.target[i] - self.h[i]) * k
-            moving |= abs(nh - self.h[i]) > 0.002
-            self.h[i] = nh
-        self.queue_draw()
-        if not self.playing and not moving:
-            self._tick = None
-            return False
+        for i, top in enumerate(self.top):      # a new height every frame, never the same as before
+            self.h[i] = (self.h[i] + r.randint(0, top - 2)) % top + 1
+        self._render()
         return True
-
-    def _draw(self, _a, cr, w, h):
-        n, bw = self.BARS, self.BAR_W
-        gap = (w - n * bw) / max(1, n - 1)
-        hv = self.h
-        r, g, b = self.COLOR
-        cr.set_line_width(bw)
-        cr.set_line_cap(1)                              # cairo.LINE_CAP_ROUND
-        mid = h / 2
-        for i in range(n):
-            # light smoothing with the neighbours: reads as one soft wave, not noise
-            v = 0.5 * hv[i] + 0.25 * hv[max(0, i - 1)] + 0.25 * hv[min(n - 1, i + 1)]
-            half = max(0.0, v * (h - bw) / 2)           # 0 = a round dot at rest
-            x = i * (bw + gap) + bw / 2
-            cr.set_source_rgba(r, g, b, 0.45 + 0.55 * min(1.0, v * 1.4))
-            cr.move_to(x, mid - half)
-            cr.line_to(x, mid + half)
-            cr.stroke()
 
 
 class MediaPanel(Panel):
@@ -676,7 +645,6 @@ class MediaPanel(Panel):
         box.append(top)
 
         self.eq = Equalizer()
-        self.eq.set_content_height(56)
         box.append(self.eq)
 
         # timeline: only when the player reports a length (drag to seek)
@@ -1166,8 +1134,6 @@ class PanelManager:
         """Recolour the popups for a hyprminimal theme (see themes.py); glass adds the frosted look."""
         import themes
         self.css.load_from_string(themes.recolor(CSS, theme) + (themes.glass_panels(theme) if glass else ""))
-        c = themes.roles(theme)["primary"].lstrip("#")
-        Equalizer.COLOR = tuple(int(c[i:i + 2], 16) / 255 for i in (0, 2, 4))
 
     def _make_catcher(self):
         """Invisible full-screen layer under the panel: a click anywhere outside closes it."""
