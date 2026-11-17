@@ -1,11 +1,10 @@
 """hyprminimal bar panels: small Noctalia-style popups opened by clicking bar widgets.
 
 They live inside the resident hyprminimal-settings process, so opening one is a D-Bus call (~10 ms).
-Panels: calendar (clock/date), battery, network (download speed), media.
+Panels: calendar (clock/date), battery, network (download speed). Media lives in the control center.
 Close with Esc, a click outside, or clicking the same widget again.
 """
 import glob
-import math
 import os
 import subprocess
 import threading
@@ -15,7 +14,7 @@ from pathlib import Path
 import gi
 
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango  # noqa: E402
+from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("Gtk4LayerShell", "1.0")
@@ -56,12 +55,8 @@ window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0
 .panel calendar > grid > label.today { background: #d7729f; color: #1f2335; border-radius: 0; }
 .panel calendar > grid > label:selected { background: #7a88cf; color: #1f2335; border-radius: 0; }
 .panel calendar > header { border: none; }
-.panel .art { border: 1px solid #4b517a; }
 .panel .icon-sm { font-family: "Symbols Nerd Font"; font-size: 18px; color: #a9b1d6; }
 .panel .caption { font-size: 12px; }
-.panel scale.timeline trough { background: #2c314a; min-height: 6px; border-radius: 0; }
-.panel scale.timeline highlight { background: #7a88cf; min-height: 6px; border-radius: 0; }
-.panel scale.timeline slider { background: #c0caf5; min-width: 14px; min-height: 14px; border-radius: 999px; margin: -4px; box-shadow: none; }
 .panel button.round.flat-icon { background: transparent; min-width: 36px; min-height: 36px; font-size: 18px; color: #a9b1d6; }
 .panel button.round.flat-icon.on { color: #d7729f; }
 .panel.compact { padding: 14px 16px; }
@@ -565,211 +560,6 @@ class NetworkPanel(Panel):
         self._last = (t, rx, tx)
 
 
-# --------------------------------------------------------------------------- media
-class Equalizer(Gtk.Label):
-    """Equalizer as plain text, like the bar's (scripts/media.sh): braille characters, each 2 columns
-    of 4 dots, so CHARS characters are 2*CHARS slim dotted bars. While visible and playing the label
-    text changes FPS times a second (no drawing code, no per-frame maths beyond a few random ints);
-    paused or hidden it is a static row of dots with no timer at all. There is no audio data: every
-    bar jumps to a new random height each frame, the middle bars may reach higher than the edges."""
-
-    CHARS = 17                   # 34 bars: fits the 400px popup without being cut off
-    FPS = 4
-    SIZE = 26                    # pt
-    GAP = -6000                  # pango units: pulls characters together so all bars are evenly spaced
-    L = (0, 0x40, 0x44, 0x46, 0x47)   # left column, 0-4 dots from the bottom (dots 7,3,2,1)
-    R = (0, 0x80, 0xA0, 0xB0, 0xB8)   # right column (dots 8,6,5,4)
-
-    def __init__(self):
-        super().__init__(css_classes=["accent", "eq"], halign=Gtk.Align.CENTER, hexpand=True)
-        import random
-        self.rand = random.Random()
-        n = 2 * self.CHARS
-        # bell-shaped ceiling: edges reach 2 dots, the middle 4
-        self.top = [2 + round(2 * math.sin(math.pi * (i + 0.5) / n) ** 1.5) for i in range(n)]
-        self.h = [1] * n
-        self.playing = False
-        self._tick = None
-        self._render()
-        self.connect("map", lambda *_: self._ensure_tick())
-        self.connect("unmap", lambda *_: self._stop())
-
-    def _render(self):
-        h, L, R = self.h, self.L, self.R
-        text = "".join(chr(0x2800 + L[h[i]] + R[h[i + 1]]) for i in range(0, len(h), 2))
-        self.set_markup(f"<span font_family='DejaVu Sans' size='{self.SIZE * 1024}' "
-                        f"letter_spacing='{self.GAP}'>{text}</span>")
-
-    def set_playing(self, playing):
-        self.playing = playing
-        self._ensure_tick()
-
-    def _ensure_tick(self):
-        if self._tick is None and self.get_mapped():
-            self._tick = GLib.timeout_add(1000 // self.FPS, self._on_tick)
-
-    def _stop(self):
-        if self._tick is not None:
-            GLib.source_remove(self._tick)
-            self._tick = None
-
-    def _on_tick(self):
-        root = self.get_root()
-        if not self.get_mapped() or root is None or not root.get_visible() or not self.playing:
-            self.h = [1] * len(self.h)          # rest: one flat row of dots, then no timer
-            self._render()
-            self._tick = None
-            return False
-        r = self.rand
-        for i, top in enumerate(self.top):      # a new height every frame, never the same as before
-            self.h[i] = (self.h[i] + r.randint(0, top - 2)) % top + 1
-        self._render()
-        return True
-
-
-class MediaPanel(Panel):
-    width = 400
-
-    def build(self, box):
-        top = Gtk.Box(spacing=16)
-        self.art = Gtk.Image(pixel_size=96, css_classes=["art"], valign=Gtk.Align.START)   # fixed 96px square
-        top.append(self.art)
-        col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, spacing=4, hexpand=True)
-        self.title = label("", "mid", wrap=True, lines=2, ellipsize=Pango.EllipsizeMode.END, max_width_chars=22)
-        self.title.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.artist = label("", "accent", ellipsize=Pango.EllipsizeMode.END, max_width_chars=26)
-        self.player = label("", "muted caption")
-        for w in (self.title, self.artist, self.player):
-            col.append(w)
-        top.append(col)
-        box.append(top)
-
-        self.eq = Equalizer()
-        box.append(self.eq)
-
-        # timeline: only when the player reports a length (drag to seek)
-        self.seek = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 1)
-        self.seek.set_draw_value(False)
-        self.seek.add_css_class("timeline")
-        self._dragging = False
-        self.seek.connect("change-value", self._on_seek)
-        g = Gtk.GestureClick()
-        g.connect("pressed", lambda *_: setattr(self, "_dragging", True))
-        g.connect("stopped", lambda *_: setattr(self, "_dragging", False))
-        g.connect("released", lambda *_: setattr(self, "_dragging", False))
-        self.seek.add_controller(g)
-        box.append(self.seek)
-        times = Gtk.Box()
-        self.times_box = times
-        self.t_pos = label("0:00", "muted caption")
-        self.t_len = label("0:00", "muted caption", xalign=1, hexpand=True)
-        times.append(self.t_pos)
-        times.append(self.t_len)
-        box.append(times)
-
-        ctl = Gtk.Box(spacing=18, halign=Gtk.Align.CENTER)
-        prev = Gtk.Button(label="\U000f04ae", css_classes=["round"], tooltip_text="Previous", valign=Gtk.Align.CENTER)
-        prev.connect("clicked", lambda *_: self._cmd("previous"))
-        self.play = Gtk.Button(label="\U000f040a", css_classes=["round", "main"], tooltip_text="Play / pause",
-                               valign=Gtk.Align.CENTER)
-        self.play.connect("clicked", lambda *_: self._cmd("play-pause"))
-        nxt = Gtk.Button(label="\U000f04ad", css_classes=["round"], tooltip_text="Next", valign=Gtk.Align.CENTER)
-        nxt.connect("clicked", lambda *_: self._cmd("next"))
-        for b_ in (prev, self.play, nxt):
-            ctl.append(b_)
-        box.append(ctl)
-        self._art_url = None
-        self._len = 0
-
-    def interval(self):
-        return 0.5
-
-    def _cmd(self, *args):
-        def after(_r):
-            for ms in (120, 450):
-                GLib.timeout_add(ms, lambda: (self.refresh(), False)[1])
-        bg(lambda: run("playerctl", *args), after)
-
-    def _on_seek(self, _s, _scroll, value):
-        if self._len:
-            v = max(0, min(value, self._len))
-            bg(lambda: run("playerctl", "position", f"{v:.1f}"), lambda _r: None)
-        return False
-
-    def refresh(self):
-        fmt = ("{{status}}\t{{title}}\t{{artist}}\t{{album}}\t{{mpris:artUrl}}\t{{position}}\t"
-               "{{mpris:length}}\t{{playerName}}")
-        bg(lambda: run("playerctl", "metadata", "--format", fmt), self._show, self, "meta")
-
-    @staticmethod
-    def _mmss(sec):
-        sec = int(sec)
-        return f"{sec // 3600}:{sec // 60 % 60:02d}:{sec % 60:02d}" if sec >= 3600 else f"{sec // 60}:{sec % 60:02d}"
-
-    def _show(self, out):
-        out = out or ""
-        f = (out.split("\t") + [""] * 8)[:8] if out else [""] * 8
-        status, title, artist, album, art, pos, length, player = f
-        playing = status == "Playing"
-        self.eq.set_playing(playing)
-        if not status:
-            self.title.set_label("Nothing Playing")
-            for w in (self.artist, self.player):
-                w.set_label("")
-            self.t_pos.set_label("0:00")
-            self.t_len.set_label("0:00")
-            self.seek.set_range(0, 1)
-            self.seek.set_value(0)
-            self.art.set_from_paintable(None)
-            self.art.set_from_icon_name("audio-x-generic-symbolic")
-            self.play.set_label("\U000f040a")
-            self.seek.set_visible(False)
-            self.times_box.set_visible(False)
-            return
-        self.title.set_label(title or "Unknown title")
-        self.artist.set_label(" · ".join(x for x in (artist, album) if x))
-        self.player.set_label(player.replace("_", " ").title())
-        self.play.set_label("\U000f03e4" if playing else "\U000f040a")
-        try:
-            p, ln = int(pos or 0) / 1e6, int(length or 0) / 1e6
-        except ValueError:
-            p, ln = 0, 0
-        self._len = ln
-        if ln:
-            self.seek.set_sensitive(True)
-            self.seek.set_range(0, ln)
-            if not self._dragging:
-                self.seek.set_value(p)
-            self.t_pos.set_label(self._mmss(p))
-            self.t_len.set_label("-" + self._mmss(max(0, ln - p)))
-        self.seek.set_visible(bool(ln))         # some players (e.g. Firefox) report no length
-        self.times_box.set_visible(bool(ln))
-        if art != self._art_url:
-            self._art_url = art
-            if art.startswith("file://"):
-                path = GLib.filename_from_uri(art)[0]
-
-                def load():
-                    try:                     # centre-crop to a square, any thumbnail shape fits
-                        pb = GdkPixbuf.Pixbuf.new_from_file(path)
-                        side = min(pb.get_width(), pb.get_height())
-                        pb = pb.new_subpixbuf((pb.get_width() - side) // 2, (pb.get_height() - side) // 2, side, side)
-                        pb = pb.scale_simple(192, 192, GdkPixbuf.InterpType.BILINEAR)   # 96px @2x
-                        return Gdk.Texture.new_for_pixbuf(pb)
-                    except GLib.Error:
-                        return None
-                bg(load, lambda t: self.art.set_from_paintable(t) if t else
-                   self.art.set_from_icon_name("audio-x-generic-symbolic"))
-            else:
-                self.art.set_from_icon_name("audio-x-generic-symbolic")
-
-    def closed(self):
-        super().closed()
-        self.eq.playing = False
-        self.eq._stop()               # hidden: no animation timer left behind
-
-
-
 # --------------------------------------------------------------------------- system
 class SystemPanel(Panel):
     """Plain-language system overview: no jargon, numbers people read at a glance."""
@@ -1115,7 +905,7 @@ class ClockZone(Gtk.Window):
 
 
 class PanelManager:
-    KINDS = {"calendar": CalendarPanel, "battery": BatteryPanel, "network": NetworkPanel, "media": MediaPanel,
+    KINDS = {"calendar": CalendarPanel, "battery": BatteryPanel, "network": NetworkPanel,
              "system": SystemPanel, "wifi": WifiPanel}
 
     def __init__(self, app):

@@ -40,7 +40,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Key | Action |
 |---|---|
 | Super+R | Launcher. Apps are numbered and the most recently used come first. Type `rm NAME` (or `rm NUMBER`) + Enter to uninstall that app: a terminal shows what will go and asks first, then runs `pacman -Rns` (app, unneeded dependencies, its /etc config), `pacman -Sc` (cache) and offers to delete its folders in ~/.config, ~/.local/share, ~/.cache. Flatpaks use `flatpak uninstall --delete-data`. |
-| Super+S | Control center: Wi-Fi, System, toggles (keys 1–5), Lock / Reboot / Shut Down, media, notifications |
+| Super+S | Control center: Wi-Fi, System, toggles (keys 1–5), Lock / Reboot / Shut Down, media (K: play/pause), notifications |
 | Super+C | VS Code (`code`) |
 | Super+I | Settings |
 | Super+H | Keybinds editor |
@@ -54,7 +54,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Clock or date | Calendar with the time, centred under the clock. Hovering shows it, moving away hides it; a click pins it open (click again, click outside or Esc to close). Right click: control center. |
 | Battery | Power mode |
 | ↓ speed | Network |
-| Media capsule | Player |
+| Media capsule | Control center (player + equalizer) |
 | Bell | Control center |
 
 ### Session menu (keys 1–4)
@@ -277,7 +277,7 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 | `brightness +5` / `brightness -5` | Change the brightness |
 | `caffeine` | Toggle Caffeine |
 | `nightlight` | Toggle Night Light |
-| `panel calendar\|battery\|network\|media` | Open a bar popup |
+| `panel calendar\|battery\|network` | Open a bar popup |
 
 ---
 
@@ -357,7 +357,7 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 - After you edit the Python files in `settings/`, run `hyprminimal restart`. The background process caches the old code.
 - Errors are in `settings.log`.
 
-**Bar popups (calendar, battery, network, media) don't appear or appear in the wrong place**
+**Bar popups (calendar, battery, network) don't appear or appear in the wrong place**
 - They need `gtk4-layer-shell` (`/usr/lib/libgtk4-layer-shell.so`). Install it with `sudo pacman -S gtk4-layer-shell`, then run `hyprminimal restart`.
 
 **Control center: no hand cursor, tooltips, key numbers or live Wi-Fi/System info** (a notification says the build failed)

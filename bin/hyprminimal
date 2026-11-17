@@ -70,7 +70,7 @@ start_one() {   # start a single component (not running already)
     swaync)
       # GTK4 CSS has no cursor/tooltip support: preload a tiny shim (pointer cursor + tooltips)
       local ptr="$GEN/swaync-pointer.so" src="$DIR/swaync/cursor/pointer.c" pre=""
-      if [[ ! $ptr -nt $src ]] && ! gcc -O2 -shared -fPIC -o "$ptr" "$src" $(pkg-config --cflags --libs gtk4) 2>"$RUN/shim-build.log"; then
+      if [[ ! $ptr -nt $src ]] && ! gcc -O2 -shared -fPIC -o "$ptr" "$src" $(pkg-config --cflags --libs gtk4) -lm 2>"$RUN/shim-build.log"; then
         rm -f "$ptr"; SHIM_FAILED=1
       fi
       [[ -f $ptr ]] && pre=$ptr

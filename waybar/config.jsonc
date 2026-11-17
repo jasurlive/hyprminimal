@@ -69,7 +69,7 @@
     "restart-interval": 2,
     "return-type": "json",
     "escape": false,
-    "on-click": "hyprminimal-msg panel media",
+    "on-click": "hyprminimal-msg control-center",
     "on-click-middle": "playerctl play-pause",
     "on-scroll-up": "playerctl next",
     "on-scroll-down": "playerctl previous"

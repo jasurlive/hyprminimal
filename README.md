@@ -10,7 +10,7 @@ A Noctalia look-alike built only from official Arch packages (no AUR).
 |---|---|---|
 | Bar: workspace pills · `15 \| 17:04` · media capsule, bell, battery, ↓ speed | waybar | `waybar/`, `scripts/media.sh` |
 | Notifications (top right) | swaync | `swaync/` |
-| Control center (Super+S, or click clock/bell): Wi-Fi, System, toggles on keys 1–5, session buttons, media, notifications | swaync | `swaync/` |
+| Control center (Super+S, or click clock/bell): Wi-Fi, System, toggles on keys 1–5, session buttons, media (also a click on the media capsule), notifications | swaync | `swaync/` |
 | Volume / brightness OSD | swayosd | `swayosd/` |
 | Launcher (Super+R); `rm NAME` + Enter uninstalls an app (pacman -Rns + cache clean, asks first) | rofi | `rofi/theme.rasi`, `helpers/launcher.c`, `scripts/remove-app.sh` |
 | Session panel (Lock, Lock & Suspend, Reboot, Shut Down, keys 1-4) | rofi | `rofi/menu.rasi`, `scripts/session.sh` |
@@ -19,7 +19,7 @@ A Noctalia look-alike built only from official Arch packages (no AUR).
 | Glass blur | Hyprland layer rules | `hypr/layerrules.lua` |
 | Settings (Super+I): bar, wallpaper, notifications, lock screen, night light, system | hyprminimal-settings | `settings/`, `settings.json` |
 | Keybinds (Super+H): search, edit, record, add, remove shortcuts | hyprminimal-settings | edits `~/.config/hypr/keybind.lua` |
-| Bar popups: click clock/date (calendar), battery (power mode), ↓ speed (network), media (player) | hyprminimal-settings | `settings/panels.py` |
+| Bar popups: click clock/date (calendar), battery (power mode), ↓ speed (network) | hyprminimal-settings | `settings/panels.py` |
 
 ## Settings
 

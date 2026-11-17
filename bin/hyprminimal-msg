@@ -21,7 +21,7 @@ case $cmd in
                     sleep 0.5
                   done ;;
   control-center) exec "$DIR/scripts/control-center.sh" ;;   # live info in the tiles, then toggle
-  panel)          exec "$DIR/bin/hyprminimal-settings" --panel "$1" ;;   # calendar | battery | network | media
+  panel)          exec "$DIR/bin/hyprminimal-settings" --panel "$1" ;;   # calendar | battery | network | system | wifi
   panel-close)    # close the open bar popup (sent by Hyprland on a click outside it, see hypr/layerrules.lua)
                   exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
                     --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1 ;;

@@ -1,2 +1,0 @@
-To restore your full old setup:
-rm -rf ~/.config/hypr && cp -a ~/hyprsettings ~/.config/hypr && hyprctl reload

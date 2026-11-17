@@ -1,3 +1,6 @@
+-- Ignore maximize requests from apps (kitty asks to be maximized on open, which stops it tiling)
+hl.window_rule({ match = { class = ".*" }, suppress_event = "maximize" })
+
 -- Float rules
 hl.window_rule({ match = { class = "^org\\.pulseaudio\\.pavucontrol$" }, float = true, size = "1100 620" })
 hl.window_rule({ match = { class = "^blueman-manager$" },                 float = true, size = "700 450" })

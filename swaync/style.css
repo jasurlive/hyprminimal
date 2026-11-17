@@ -77,6 +77,8 @@
 }
 .widget-mpris .widget-mpris-player .mpris-overlay > box > button:hover { background: @primary; color: @on_primary; }
 .widget-mpris .widget-mpris-player .mpris-overlay > box > button image { -gtk-icon-size: 18px; }
+/* equalizer between the title row and the buttons (added by swaync/cursor/pointer.c), the bar's in big */
+.widget-mpris .hyprminimal-eq { color: @primary; font-size: 26pt; margin: 2px 0 10px 0; }
 .widget-mpris > box > button { background: transparent; border: none; color: @on_surface; box-shadow: none; }
 
 /* tiles: rounded cards; toggles show their state by colour, a visible focus ring for keyboard use */
