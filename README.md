@@ -12,7 +12,7 @@ A Noctalia look-alike built only from official Arch packages (no AUR).
 | Notifications (top right) | swaync | `swaync/` |
 | Control center (Super+S, or click clock/bell): Wi-Fi, System, toggles on keys 1–5, session buttons, media, notifications | swaync | `swaync/` |
 | Volume / brightness OSD | swayosd | `swayosd/` |
-| Launcher (Super+R); `rm NAME` + Enter uninstalls an app (pacman -Rns + cache clean, asks first) | rofi | `rofi/theme.rasi`, `scripts/launcher.py`, `scripts/remove-app.sh` |
+| Launcher (Super+R); `rm NAME` + Enter uninstalls an app (pacman -Rns + cache clean, asks first) | rofi | `rofi/theme.rasi`, `helpers/launcher.c`, `scripts/remove-app.sh` |
 | Session panel (Lock, Lock & Suspend, Reboot, Shut Down, keys 1-4) | rofi | `rofi/menu.rasi`, `scripts/session.sh` |
 | Lock screen (Super+L) | hyprlock | `hyprlock/` |
 | Wallpaper | swaybg | Settings → Wallpaper |
@@ -52,8 +52,8 @@ cd ~/hyprminimal && ./install.sh     # then: sudo reboot
 
 It installs Hyprland, hyprminimal and a base desktop (PipeWire, NetworkManager, Bluetooth, GPU drivers,
 Firefox, Thunar, kitty) from the official repos only, puts a default Hyprland config in `~/.config/hypr`
-(an existing one is backed up first), and sets up the greetd login screen. Options: `--autologin`,
-`--no-greeter`, `--reset-hypr`, `--no-gpu`, `-y` (`./install.sh --help`). Re-running it is safe.
+(an existing one is backed up first), and starts Hyprland when you log in on tty1 (plain TTY login, no display manager). Options:
+`--no-autostart`, `--reset-hypr`, `--no-gpu`, `-y` (`./install.sh --help`). Re-running it is safe.
 
 The repo can live anywhere: it is linked at `~/.local/share/hyprminimal`, and the commands in `~/.local/bin`.
 

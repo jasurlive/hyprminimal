@@ -4,8 +4,7 @@
 #   git clone <repo> ~/hyprminimal && cd ~/hyprminimal && ./install.sh
 #
 # Run it as your normal user (it asks for sudo). Safe to run again: it only adds what is missing.
-#   --autologin   boot straight into the hyprminimal lock screen (no separate login screen at boot)
-#   --no-greeter  don't set up the greetd login screen (start Hyprland yourself: start-hyprland)
+#   --no-autostart don't start Hyprland when you log in on tty1 (start it yourself: start-hyprland)
 #   --reset-hypr  replace ~/.config/hypr with hyprminimal's defaults again (old one is backed up)
 #   --reset-kitty replace ~/.config/kitty/kitty.conf with hyprminimal's again (old one is backed up)
 #   --no-gpu      don't install GPU drivers
@@ -16,17 +15,16 @@ DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 LINK="$HOME/.local/share/hyprminimal"   # stable path every config uses, wherever the repo was cloned
 HYPR="$HOME/.config/hypr"
 WALL="$HOME/Pictures/Wallpapers/hyprminimal.png"
-AUTOLOGIN=0 GREETER=1 RESET_HYPR=0 RESET_KITTY=0 GPU=1 YES=0
+AUTOSTART=1 RESET_HYPR=0 RESET_KITTY=0 GPU=1 YES=0
 
 for a in "$@"; do
   case $a in
-    --autologin) AUTOLOGIN=1 ;;
-    --no-greeter) GREETER=0 ;;
+    --no-autostart) AUTOSTART=0 ;;
     --reset-hypr) RESET_HYPR=1 ;;
     --reset-kitty) RESET_KITTY=1 ;;
     --no-gpu) GPU=0 ;;
     -y|--yes) YES=1 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $a (see --help)"; exit 2 ;;
   esac
 done
@@ -56,8 +54,6 @@ BASE=(
   pipewire pipewire-pulse pipewire-alsa wireplumber sof-firmware
   # bluetooth
   bluez
-  # login screen
-  greetd
   # apps the default keybinds open
   thunar gvfs firefox
   # screenshots, clipboard, displays
@@ -185,35 +181,35 @@ systemctl is-active -q NetworkManager || systemctl is-active -q systemd-networkd
 sudo systemctl enable bluetooth.service power-profiles-daemon.service
 systemctl --user enable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
 
-if (( GREETER )); then
-  # one display manager only
-  for dm in gdm sddm lightdm ly lxdm; do
-    systemctl is-enabled -q "$dm" 2>/dev/null && { warn "disabling $dm (greetd takes over)"; sudo systemctl disable "$dm"; }
-  done
-  step "Installing the hyprminimal login screen (greetd)"
-  sudo "$DIR/bin/hyprminimal-greeter" install
-  if (( AUTOLOGIN )); then
-    sudo "$DIR/bin/hyprminimal-autologin" enable "$USER"
+# ------------------------------------------------------------------ login: plain TTY, no display manager
+# an old hyprminimal greetd login screen would take tty1: turn it off (the TTY login prompt comes back)
+if [[ -d /usr/local/share/hyprminimal-greeter ]] || grep -qs hyprminimal /etc/greetd/config.toml; then
+  step "Removing the old hyprminimal login screen (greetd)"
+  sudo systemctl disable greetd.service 2>/dev/null || true
+  sudo rm -rf /usr/local/share/hyprminimal-greeter /var/cache/hyprminimal-greeter
+  b=/etc/greetd/config.toml.pre-hyprminimal-greeter
+  [[ -f $b ]] && sudo mv "$b" /etc/greetd/config.toml
+  rm -f "$DIR/.generated/greeter.css" "$DIR/.generated/greeter_wall"
+fi
+for dm in greetd gdm sddm lightdm ly lxdm; do
+  systemctl is-enabled -q "$dm" 2>/dev/null && warn "$dm is enabled and takes tty1; for the TTY login: sudo systemctl disable $dm"
+done
+if (( AUTOSTART )); then
+  step "Starting Hyprland at login on tty1 (~/.bash_profile)"
+  f="$HOME/.bash_profile"
+  if grep -qs '^# hyprminimal autostart' "$f"; then
+    echo "  already there"
+  else
+    printf '\n# hyprminimal autostart: log in on tty1 -> Hyprland\nif [[ -z $WAYLAND_DISPLAY && $(tty) == /dev/tty1 ]]; then\n  exec start-hyprland\nfi\n' >> "$f"
   fi
-  sudo systemctl enable greetd.service
-  # a getty autologin on tty1 (e.g. agetty --skip-login / --autologin) fights greetd for the same VT
-  for d in /etc/systemd/system/getty@tty1.service.d/*.conf; do
-    [[ -f $d ]] && grep -qE -- '--(skip-login|autologin)' "$d" \
-      && warn "$d logs in on tty1 without the login screen; remove it: sudo rm $d && sudo systemctl daemon-reload"
-  done
-  # check the result: the greeter must be the default session, and no autologin unless asked for
-  conf=/etc/greetd/config.toml
-  grep -q /usr/local/share/hyprminimal-greeter "$conf" || warn "$conf does not start the hyprminimal greeter"
-  if (( ! AUTOLOGIN )) && grep -q '^\[initial_session\]' "$conf"; then
-    warn "$conf still has autologin ([initial_session]); the login screen will be skipped at boot"
-  fi
+  [[ ${SHELL##*/} == bash ]] || warn "your login shell is $SHELL, not bash: add 'exec start-hyprland' on tty1 to its profile yourself"
 fi
 
 # ------------------------------------------------------------------ done
 step "Done"
 cat <<EOF
-  hyprminimal is installed. Reboot to log in:   sudo reboot
-$( (( GREETER )) || echo "  (no greeter: log in on a TTY and run start-hyprland)")
+  hyprminimal is installed. Reboot and log in on tty1:   sudo reboot
+$( (( AUTOSTART )) || echo "  (no autostart: after logging in, run start-hyprland)")
 
   Keys:  Super+Space  terminal · Super+R launcher · Super+S control center · Super+I settings
          Super+H all keybinds · Super+L lock · Super+Q close · Super+Esc power menu

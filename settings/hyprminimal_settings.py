@@ -189,24 +189,6 @@ def sh(*cmd, detach=False):
 
 
 # --------------------------------------------------------------------------- render
-GREETER_BG = Path("/usr/local/share/hyprminimal-greeter/background.png")
-
-
-def sync_greeter_background(wallpaper):
-    """Keep the login screen on the lock screen's wallpaper. `sudo hyprminimal-greeter install` hands
-    background.png to this user, so it can be rewritten here without root (in place: the folder is root's)."""
-    stamp = GEN / "greeter_wall"
-    wp = str(Path(wallpaper).expanduser())
-    if not (os.access(GREETER_BG, os.W_OK) and Path(wp).is_file()):
-        return
-    if stamp.exists() and stamp.read_text().strip() == wp:
-        return
-    tmp = GEN / "greeter-bg.png"
-    sh("sh", "-c", 'magick "$1" -resize 2560x1440^ -gravity center -extent 2560x1440 -blur 0x24 '
-       '-modulate 70,120 "$2" && cat "$2" > "$3" && rm -f "$2" && printf "%s\\n" "$1" > "$4"',
-       "_", wp, str(tmp), str(GREETER_BG), str(stamp), detach=True)
-
-
 def read_jsonc(path):
     text = path.read_text(encoding="utf-8")
     return json.loads(re.sub(r"^\s*//.*$", "", text, flags=re.M))
@@ -367,7 +349,6 @@ def render(s):
     lock = lock.replace("$font     = Noto Sans", f"$font     = {font}")
     lock = themes.recolor(lock, th)
     (GEN / "hyprlock.conf").write_text(lock, encoding="utf-8")
-    sync_greeter_background(lk["wallpaper"])
 
     # also at the default path, so a bare `hyprlock` (typed, or started by another app)
     # finds the same config instead of failing with "No config found". Never replaces a real file.
@@ -398,7 +379,7 @@ def themed_css(path, theme):
 
 
 def render_theme(th, glass):
-    """Everything else that follows the theme: OSD, launcher, terminal, Hyprland borders, greeter."""
+    """Everything else that follows the theme: OSD, launcher, terminal, Hyprland borders."""
     (GEN / "theme").write_text(f"{th} {'glass' if glass else 'solid'} {'dark' if themes.roles(th)['dark'] else 'light'}\n")
     (GEN / "palette.css").write_text(themes.palette_css(th))
     (GEN / "swayosd.css").write_text(themed_css(DIR / "swayosd/style.css", th)
@@ -412,7 +393,6 @@ def render_theme(th, glass):
         (rofi / f).write_text(text, encoding="utf-8")
     (GEN / "kitty-colors.conf").write_text(themes.kitty_conf(th))
     (GEN / "hypr-theme.lua").write_text(themes.hypr_lua(th, glass))
-    (GEN / "greeter.css").write_text(themed_css(DIR / "greeter/style.css", th))
     (GEN / "wall_bg").write_text(themes.roles(th)["wall_bg"] + "\n")
 
 

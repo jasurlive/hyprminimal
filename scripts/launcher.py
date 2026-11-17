@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""hyprminimal launcher: numbered app list in rofi.
+"""hyprminimal launcher cache builder (run by scripts/launcher.sh only when apps change).
 
-Apps are numbered alphabetically (numbers stay the same between runs). The 5 apps you
-launched last are pinned on top as well, newest first. Type a number + Enter to launch that app, or search by name.
-"rm NAME" (or "rm NUMBER") + Enter uninstalls the app instead, in a terminal that asks first (scripts/remove-app.sh).
+Writes one line per visible app, A-Z (numbers stay the same between runs):
+    id \t desktop-file \t search-text \t display-markup \t rank-tail   (no icons: faster)
+rank-tail: rofi ranks by the display text (markup included) and its fzf score favours matches late in the
+text and short rows, so "man" put "Bluetooth Manager" above "Manage Printing". The tail is an invisible,
+1/1024 pt copy of the app's first word at the very end of every row, left-padded so every row has the same
+length (the score also costs each character before the match): an app whose name starts with the typed
+text matches in that copy, at the same spot in every row, and outranks every match inside a name.
+Python + Gio is the correct .desktop parser but costs ~150 ms, so it is kept off the keypress path.
 """
-import os
-import subprocess
 import sys
 from html import escape
 from pathlib import Path
@@ -15,91 +18,36 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio  # noqa: E402
 
-DIR = Path(__file__).resolve().parent.parent
-STATE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "hyprminimal"
-RECENT = STATE / "launcher-recent"   # app ids, newest first
-KEEP = 5
+
+def clean(s):
+    return s.replace("\t", " ").replace("\n", " ").replace("\0", "").replace("\x1f", "").replace("\x1e", "")
 
 
-def apps():
-    seen, out = set(), []
+def main(out):
+    seen, apps = set(), []
     for a in Gio.AppInfo.get_all():
-        if a.should_show() and a.get_id() not in seen:
+        if a.should_show() and a.get_id() not in seen and a.get_filename():
             seen.add(a.get_id())
-            out.append(a)
-    out.sort(key=lambda a: a.get_display_name().casefold())
-    return out
-
-
-def row(num, app, width, tag=""):
-    # search sees only "12 Firefox"; the styled text goes in `display` (rofi would match markup)
-    name = app.get_display_name()
-    shown = f"<span alpha='45%' font_family='monospace'>{num:>{width}}</span>   {escape(name)}{tag}"
-    opts = [f"display\x1f{shown}"]
-    icon = app.get_icon()
-    if icon:
-        opts.append(f"icon\x1f{icon.to_string()}")
-    # search only the number + visible name (keywords/generic names made "te" hit Firefox via "Internet")
-    # "rm": typing "rm fire" keeps Firefox in the list (uninstall)
-    search = f"{name} {num} rm".replace("\n", " ").replace("\0", "").replace("\x1f", "")   # name first: ranks "Te…" above "…test…"
-    return search + "\0" + "\x1f".join(opts)
-
-
-def main():
-    lst = apps()
-    width = len(str(len(lst)))
-    try:
-        recent_ids = RECENT.read_text().split()
-    except OSError:
-        recent_ids = []
-    pos = {a.get_id(): i for i, a in enumerate(lst)}
-    recent = [pos[r] for r in recent_ids if r in pos][:KEEP]   # uninstalled apps drop out
-
-    tag = "<span alpha='40%' size='small'>   recent</span>"
-    # recent apps sit on top instead of in the A-Z list (each app shown once, numbers never change)
-    order = recent + [i for i in range(len(lst)) if i not in recent]   # rofi row -> app index
-    rows = [row(i + 1, lst[i], width, tag if n < len(recent) else "") for n, i in enumerate(order)]
-    extra = ["-a", f"0-{len(recent) - 1}"] if recent else []
-
-    def rasi(name):   # themed copy from Settings (.generated/rofi), else the repo's own
-        gen = DIR / ".generated/rofi" / f"{name}.rasi"
-        return gen if gen.exists() else DIR / "rofi" / f"{name}.rasi"
-    subprocess.run([str(DIR / "bin/hyprminimal-msg"), "catch", "rofi"])   # click outside closes it
-    res = subprocess.run(
-        ["rofi", "-dmenu", "-i", "-markup-rows", "-show-icons", "-no-custom",
-         "-format", "i\tf", "-p", "\U000f0349", "-theme", str(rasi("launcher")), *extra],
-        input="\n".join(rows), capture_output=True, text=True)
-    subprocess.run([str(DIR / "bin/hyprminimal-msg"), "catch", ""])
-    if res.returncode != 0 or not res.stdout.strip("\n"):
-        return
-    idx, _, typed = res.stdout.rstrip("\n").partition("\t")
-    typed = typed.strip()
-    remove = typed == "rm" or typed.startswith("rm ")
-    if remove:
-        typed = typed[2:].strip()
-        if not typed:          # bare "rm" + Enter: no app named, never guess which one to remove
-            return
-    if typed.isdigit() and 1 <= int(typed) <= len(lst):   # "12" + Enter = app number 12
-        app = lst[int(typed) - 1]
-    elif idx.lstrip("-").isdigit() and 0 <= int(idx) < len(order):
-        app = lst[order[int(idx)]]
-    else:
-        return
-
-    if remove:
-        path = app.get_filename() if hasattr(app, "get_filename") else None
-        if path:
-            subprocess.Popen(["kitty", "--class", "hyprminimal-remove", "--title", f"Remove {app.get_display_name()}",
-                              str(DIR / "scripts/remove-app.sh"), path, app.get_display_name()],
-                             start_new_session=True, stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return
-
-    STATE.mkdir(parents=True, exist_ok=True)
-    ids = [app.get_id()] + [r for r in recent_ids if r != app.get_id()]
-    RECENT.write_text("\n".join(ids[:KEEP]) + "\n")
-    app.launch([], Gio.AppLaunchContext())
+            apps.append(a)
+    apps.sort(key=lambda a: a.get_display_name().casefold())
+    width = len(str(len(apps)))
+    rows = []
+    for num, a in enumerate(apps, 1):
+        name = clean(a.get_display_name())
+        shown = f"<span alpha='45%' font_family='monospace'>{num:>{width}}</span>   {escape(name)}"
+        rows.append((a, name, shown, escape(name.split(" ", 1)[0])))
+    # every row this long; rofi skips scoring rows over 256 characters, so a huge name can't push all rows past
+    # it (256 - the 47-character recent tag - the tail's 33 characters of markup)
+    full = min(max((len(shown) + len(first) for _, _, shown, first in rows), default=0), 256 - 47 - 33)
+    lines = []
+    for num, (a, name, shown, first) in enumerate(rows, 1):
+        tail = f"<span alpha='1%' size='1'>{first:>{full - len(shown)}}</span>"
+        # search sees only the name + number ("rm" keeps the app listed while typing "rm fire")
+        lines.append("\t".join([clean(a.get_id()), clean(a.get_filename()), f"{name} {num} rm", shown, tail]))
+    tmp = Path(out + ".tmp")
+    tmp.write_text("\n".join(lines) + "\n")
+    tmp.replace(out)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1]))

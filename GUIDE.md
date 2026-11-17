@@ -24,8 +24,6 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 | `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync`, `swayosd-server` or `swaybg`. |
 | `hyprminimal status` | Shows whether hyprminimal is active and which components are running. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
-| `sudo hyprminimal-autologin enable\|disable\|status` | Boots straight to the hyprminimal lock screen, which then acts as the login screen (greetd). |
-| `sudo hyprminimal-greeter install\|uninstall\|status` | The login screen after you log out: lock-screen look with a username field (prefilled with the last user) and password. Re-run install after changing monitors; its background follows the lock screen wallpaper by itself. |
 
 All of these are in `~/www/hyprminimal/bin/`.
 
@@ -202,10 +200,9 @@ Shows the version of each package and the paths of `settings.json` and `keybind.
 
 **Pick a theme:** Settings → General → Theme. It applies at once: bar, notifications, control center, OSD,
 launcher and session menu, bar popups, Settings, kitty, the lock screen and Hyprland's window borders.
-The login screen picks it up the next time you run `sudo hyprminimal-greeter install`.
 
 **How it works.** The style files in the repo (`waybar/style.css`, `swaync/style.css`, `swayosd/style.css`,
-`rofi/*.rasi`, `hyprlock/hyprlock.conf`, `greeter/style.css`, the CSS inside `settings/*.py`) are written in
+`rofi/*.rasi`, `hyprlock/hyprlock.conf`, the CSS inside `settings/*.py`) are written in
 Tokyo Night colours. `settings/themes.py` gives every one of those colours a *role* (`primary`, `surface`,
 `outline`, `on_surface`, …) and, when you pick a theme, writes copies with each colour swapped for the theme's
 colour in the same role into `.generated/`. So:
@@ -244,7 +241,7 @@ Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu 
 | `.generated/palette.css` | Colour roles (GTK `@define-color`), read by `scripts/media.sh` |
 | `.generated/waybar.css`, `swaync.css`, `swayosd.css` | Bar, notifications/control center, OSD |
 | `.generated/rofi/*.rasi` | Launcher and session menu |
-| `.generated/hyprlock.conf`, `greeter.css` | Lock screen, login screen |
+| `.generated/hyprlock.conf` | Lock screen |
 | `.generated/kitty-colors.conf` | kitty |
 | `.generated/hypr-theme.lua` | Hyprland borders and blur |
 | `.generated/clock_zone.json` | Calendar click area |
@@ -295,8 +292,7 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 | Logs | `$XDG_RUNTIME_DIR/hyprminimal/*.log` (usually `/run/user/1000/hyprminimal/`). The previous run of each log is kept as `NAME.log.1`. |
 | "hyprminimal is active" flag | `$XDG_RUNTIME_DIR/hyprminimal/active` |
 | Backups of Hyprland files | `~/.config/hypr/.pre-hyprminimal-backup/` |
-| Hyprland files hyprminimal touches | `startup.lua` (autostart and autologin lock), `keybind.lua` (hyprminimal-msg), `hyprland.lua` (last line loads `hypr/layerrules.lua` for blur) |
-| greetd autologin | `/etc/greetd/config.toml`. The original is at `config.toml.pre-hyprminimal`. |
+| Hyprland files hyprminimal touches | `startup.lua` (autostart), `keybind.lua` (hyprminimal-msg), `hyprland.lua` (last line loads `hypr/layerrules.lua` for blur) |
 
 Log files:
 
@@ -408,9 +404,9 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 - Run `hyprctl configerrors` to see the error. Then restore the affected file (`startup.lua`, `hyprland.lua` or `keybind.lua`) from `~/.config/hypr/.pre-hyprminimal-backup/`.
 - To check a Lua file's syntax: `luac -p ~/.config/hypr/startup.lua`
 
-**Autologin: the boot hangs or gets stuck at the lock screen**
-- Switch to a TTY (**Ctrl+Alt+F2**), log in, and run `sudo ~/www/hyprminimal/bin/hyprminimal-autologin disable`. Then reboot. The normal greeter comes back.
-- If greetd itself fails to start, run `journalctl -b -u greetd` to see why.
+**Logging in on tty1 doesn't start Hyprland**
+- `~/.bash_profile` needs the `# hyprminimal autostart` block (`./install.sh` adds it). It only runs on tty1, in a login shell.
+- If a display manager still holds tty1, turn it off: `sudo systemctl disable greetd` (or gdm, sddm, ...), then reboot.
 
 **A component won't start and its log is empty**
 - Start it in the foreground to see the error, for example:
@@ -430,7 +426,7 @@ hyprminimal restart                        # everything is rebuilt from the defa
 
 ### Uninstall hyprminimal completely
 1. In `~/.config/hypr/startup.lua`, remove the hyprminimal line (or restore `.pre-hyprminimal-backup/startup.lua`, after checking it).
-2. If you enabled autologin, run `sudo ~/www/hyprminimal/bin/hyprminimal-autologin disable`.
+2. Remove the `# hyprminimal autostart` block from `~/.bash_profile`.
 3. Run `hyprminimal stop`.
 4. Remove the last line of `~/.config/hypr/hyprland.lua` (the one that loads the hyprminimal blur rules).
 5. In `keybind.lua`, point `SHELLMSG` at your new shell, or restore the file from `.pre-hyprminimal-backup/`.
