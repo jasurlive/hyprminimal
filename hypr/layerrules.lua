@@ -1,4 +1,4 @@
--- hyprminimal: blur behind the bar and panels (Noctalia's "glass" look).
+-- hyprminimal: blur behind the bar and panels (Noctalia's "glass" look). Popups appear instantly: no animation.
 -- Loaded from ~/.config/hypr/hyprland.lua (dofile); harmless when hyprminimal isn't running.
 local function glass(name, ns, extra)
     local spec = { name = "hyprminimal-" .. name, match = { namespace = ns }, blur = true, ignore_alpha = 0.2 }
@@ -7,11 +7,11 @@ local function glass(name, ns, extra)
 end
 
 glass("bar",    "^waybar$")
-glass("cc",     "^swaync-control-center$",       { animation = "slide top" })
-glass("notif",  "^swaync-notification-window$",  { animation = "slide right" })
-glass("osd",    "^swayosd$",                     { animation = "fade" })
-glass("rofi",   "^rofi$",                        { animation = "slide top" })
-glass("panel",  "^hyprminimal-panel$",              { animation = "slide top" })
+glass("cc",     "^swaync-control-center$",       { no_anim = true })
+glass("notif",  "^swaync-notification-window$",  { no_anim = true })
+glass("osd",    "^swayosd$",                     { no_anim = true })
+glass("rofi",   "^rofi$",                        { no_anim = true })
+glass("panel",  "^hyprminimal-panel$",           { no_anim = true })
 hl.layer_rule({ name = "hyprminimal-catcher", match = { namespace = "^hyprminimal-catcher$" }, no_anim = true })
 
 -- bar popups close on a click anywhere but the popup or the bar (non_consuming: the click still

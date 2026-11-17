@@ -41,8 +41,8 @@ local exec_once = {
 
 -- autologin (sudo hyprminimal-autologin enable): greetd starts Hyprland with HYPRMINIMAL_AUTOLOGIN=1 and no
 -- password, so the lock screen comes up first and acts as the login screen.
-local AUTOLOGIN_LOCK = ([[sh -c 'c="%s/.generated/hyprlock.conf"; [ -f "$c" ] || c="%s/hyprlock/hyprlock.conf"; exec hyprlock -c "$c"']])
-    :format(HM, HM)
+-- Through hyprminimal-msg, which restarts hyprlock if it crashes instead of leaving the "oopsie" page.
+local AUTOLOGIN_LOCK = HM .. "/bin/hyprminimal-msg lock"
 
 hl.on("hyprland.start", function()
     if os.getenv("HYPRMINIMAL_AUTOLOGIN") == "1" then

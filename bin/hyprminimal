@@ -3,7 +3,7 @@
 #   hyprminimal start          start hyprminimal (stops a running copy first)
 #   hyprminimal stop           stop hyprminimal
 #   hyprminimal restart        restart hyprminimal (after editing configs)
-#   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server swaybg hypridle)
+#   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server swaybg)
 #   hyprminimal wallpaper PATH show PATH as the wallpaper (used by Settings)
 #   hyprminimal status         show what is running
 set -uo pipefail
@@ -17,16 +17,15 @@ GOOD="$GEN/good"        # last config each component ran on without crashing
 ERR="$RUN/errors"       # ERR/NAME: why a component failed; the bar shows a red pill, Settings a red banner
 export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
 
-COMPONENTS=(waybar swaync swayosd-server swaybg hypridle)
-declare -A LOG=([waybar]=waybar [swaync]=swaync [swayosd-server]=swayosd [swaybg]=swaybg [hypridle]=hypridle)
+COMPONENTS=(waybar swaync swayosd-server swaybg)
+declare -A LOG=([waybar]=waybar [swaync]=swaync [swayosd-server]=swayosd [swaybg]=swaybg)
 declare -A NAME=([waybar]="Bar" [swaync]="Notification centre" [swayosd-server]="Volume/brightness OSD"
-                 [swaybg]="Wallpaper" [hypridle]="Idle/lock timer")
-declare -A CONF=([waybar]="waybar.json waybar.css" [swaync]="swaync.json swaync.css" [hypridle]="hypridle.conf")
+                 [swaybg]="Wallpaper")
+declare -A CONF=([waybar]="waybar.json waybar.css" [swaync]="swaync.json swaync.css")
 declare -A FIX=([waybar]="Check Settings → Bar, or waybar/config.jsonc and waybar/style.css."
                 [swaync]="Check swaync/config.json and swaync/style.css."
                 [swayosd-server]="Check swayosd/config.toml and swayosd/style.css."
-                [swaybg]="Check that swaybg is installed and the wallpaper file exists (Settings → Wallpaper)."
-                [hypridle]="Check Settings → Idle, or the rendered .generated/hypridle.conf.")
+                [swaybg]="Check that swaybg is installed and the wallpaper file exists (Settings → Wallpaper).")
 
 # previous log kept as NAME.log.1 so a crash reason survives the restart
 spawn() { local name=$1; shift; [[ -s $RUN/$name.log ]] && mv -f "$RUN/$name.log" "$RUN/$name.log.1"
@@ -48,10 +47,28 @@ set_error() {   # NAME message: remember the failure and refresh the bar's error
 }
 clear_error() { [[ -e $ERR/$1 ]] && { rm -f "$ERR/$1"; pkill -RTMIN+9 -x waybar; }; return 0; }
 
+# A layer surface that maps while a window is already fullscreen is drawn ON TOP of it (Hyprland 0.57):
+# a bar (re)started then (login race with an autostarted fullscreen app, Settings apply, watchdog restart)
+# covers the fullscreen window. Once the bar is up, toggle every real fullscreen window (mode 2; mode 1 =
+# maximized leaves room for the bar) off and on again: re-entering fullscreen puts it back above the bar.
+refullscreen_after_bar() {
+  ( unlock_fd
+    for _ in $(seq 50); do hyprctl layers 2>/dev/null | grep -q 'namespace: waybar' && break; sleep 0.1; done
+    sleep 0.2
+    hyprctl clients -j 2>/dev/null | python3 -Ic 'import json,sys
+for c in json.load(sys.stdin):
+    if c.get("fullscreen") == 2: print(c["address"])' | while read -r a; do
+      hyprctl dispatch "hl.dsp.window.fullscreen({ window = \"address:$a\" })" >/dev/null
+      hyprctl dispatch "hl.dsp.window.fullscreen({ window = \"address:$a\" })" >/dev/null
+    done ) </dev/null >/dev/null 2>&1 &
+  disown
+}
+
 start_one() {   # start a single component (not running already)
   case $1 in
     waybar)
-      spawn waybar waybar -c "$(cfg waybar waybar.json)" -s "$(cfg waybar waybar.css)" ;;
+      spawn waybar waybar -c "$(cfg waybar waybar.json)" -s "$(cfg waybar waybar.css)"
+      refullscreen_after_bar ;;
     swaync)
       # GTK4 CSS has no cursor/tooltip support: preload a tiny shim (pointer cursor + tooltips)
       local ptr="$GEN/swaync-pointer.so" src="$DIR/swaync/cursor/pointer.c" pre=""
@@ -73,8 +90,6 @@ start_one() {   # start a single component (not running already)
       else spawn swaybg swaybg -o '*' -c "$(cat "$GEN/wall_bg" 2>/dev/null || echo '#222436')"; fi
       # new one first, then drop the old: no black flash when the wallpaper changes
       [[ $old ]] && { sleep 0.3; kill $old 2>/dev/null; } ;;
-    hypridle)
-      spawn hypridle hypridle -c "$(cfg hypridle hypridle.conf)" ;;
     *) echo "hyprminimal: unknown component $1" >&2; return 2 ;;
   esac
 }
@@ -206,6 +221,10 @@ Log: $RUN/${LOG[$c]}.log — after fixing run: hyprminimal restart"
 }
 
 stop_components() {
+  # nothing of ours running (fresh login): skip ~20 pkill/pgrep scans and the settle sleep (~1 s)
+  pgrep -x "$(IFS='|'; echo "${COMPONENTS[*]}|hyprsunset|waitpids|workspace-watch")" >/dev/null \
+    || pgrep -f "$DIR/(bin/hyprminimal watchdog|scripts/workspace-watch\.py)" >/dev/null \
+    || { [[ -f $RUN/caffeine.pid ]] && kill "$(cat "$RUN/caffeine.pid")" 2>/dev/null; rm -f "$RUN/caffeine.pid"; return 0; }
   pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"; pkill -f "$DIR/scripts/workspace-watch.py"; pkill -f "$GEN/bin/workspace-watch"
   for c in "${COMPONENTS[@]}"; do stop_one "$c"; done
   pkill -x hyprsunset
@@ -214,9 +233,13 @@ stop_components() {
 }
 
 start_components() {
-  local err
-  if ! err=$("$DIR/bin/hyprminimal-settings" --apply 2>&1); then
-    RENDER_ERR=${err##*$'\n'}   # reported once swaync is up
+  local err stamp="$GEN/.applied"
+  # re-render only when settings.json or a repo config changed since the last render: starting Python +
+  # GTK for --apply costs ~0.5 s at every login. HYPRMINIMAL_FORCE_APPLY=1 renders anyway.
+  if [[ ${HYPRMINIMAL_FORCE_APPLY:-} || ! -f $stamp ]] \
+     || [[ $(find "$DIR" \( -path "$GEN" -o -path "$DIR/.git" \) -prune -o -newer "$stamp" -print -quit 2>/dev/null) ]]; then
+    if err=$("$DIR/bin/hyprminimal-settings" --apply 2>&1); then touch "$stamp"
+    else RENDER_ERR=${err##*$'\n'}; rm -f "$stamp"; fi   # reported once swaync is up
   fi
   local nl temp
   read -r nl temp < "$GEN/nightlight" 2>/dev/null
@@ -229,7 +252,6 @@ start_components() {
   start_one swaync
   start_one waybar
   start_one swayosd-server
-  start_one hypridle
   # one "current player" for bar, panel and media keys (several Firefox tabs = several players)
   pgrep -x playerctld >/dev/null || spawn playerctld playerctld daemon
   # close the control center when switching workspace (Super+1..9) or monitor
@@ -263,10 +285,8 @@ run_startup() {
 
 case ${1:-} in
   start)
-    miss=()
-    while read -r p _; do   # "name   # comment" lines
-      [[ -z $p || $p == \#* ]] || pacman -Qq "$p" >/dev/null 2>&1 || miss+=("$p")
-    done < "$DIR/packages.txt"
+    # one pacman call for all packages ("name   # comment" lines), not one per package (~1 s at login)
+    mapfile -t miss < <(pacman -T $(awk '!/^[[:space:]]*#/ && NF {print $1}' "$DIR/packages.txt") 2>/dev/null)
     if (( ${#miss[@]} )); then
       echo "hyprminimal: install missing packages first:"
       echo "  sudo pacman -S --needed ${miss[*]}"

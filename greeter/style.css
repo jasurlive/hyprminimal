@@ -15,14 +15,7 @@ window { background: #1f2335; }
   padding: 24px 0;
 }
 
-.user-row { margin-bottom: 14px; }
-.user { color: #c0caf5; font-size: 15px; margin: 0 14px; }
-
-.arrow {
-  background: none; border: none; box-shadow: none; outline: none;
-  color: #a9b1d6; font-size: 16px; min-width: 28px; min-height: 28px; padding: 0; border-radius: 0;
-}
-.arrow:hover { color: #7a88cf; }
+.username { margin-bottom: 10px; }
 
 .password {
   min-width: 380px; min-height: 48px;
