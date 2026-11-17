@@ -225,10 +225,10 @@ colour in the same role into `.generated/`. So:
   OSD, bar popups, Settings, launcher). Each sets the transparency (`alpha(@surface, 0.90)`, `0.92`, …),
   the hairline edge (`glass_edge()`) and the corner radii.
 
-**Calendar hover area.** Waybar can't react to hovering, so an invisible strip from the Settings process
-sits over the date and clock (`HoverZone` in `settings/panels.py`). Its size comes from
-`.generated/clock_zone.json`, recalculated whenever the bar's text, font or widgets change. The hover
-delay (350 ms) is in `PanelManager.hover_release()`.
+**Calendar click area.** An invisible strip from the Settings process sits over the date and clock
+(`ClockZone` in `settings/panels.py`): a click toggles the calendar, a right click opens the control center.
+Its size comes from `.generated/clock_zone.json`, recalculated whenever the bar's text, font or widgets
+change. Nothing on the bar reacts to hovering: tooltips are off, info opens on click.
 
 **Other apps.** GTK apps follow `gsettings` (`color-scheme prefer-dark`, set at login by `startup.lua` and on
 every theme change) and `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
@@ -245,7 +245,7 @@ Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu 
 | `.generated/hyprlock.conf`, `greeter.css` | Lock screen, login screen |
 | `.generated/kitty-colors.conf` | kitty |
 | `.generated/hypr-theme.lua` | Hyprland borders and blur |
-| `.generated/clock_zone.json` | Calendar hover area |
+| `.generated/clock_zone.json` | Calendar click area |
 
 ---
 

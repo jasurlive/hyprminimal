@@ -3,7 +3,8 @@
 
     hyprminimal-settings                 open the settings window
     hyprminimal-settings --page keybinds open on a page (general, bar, wallpaper, notifications,
-                                      lock, startup, nightlight, keybinds, system, about)
+                                      lock, startup, nightlight, keybinds, system, about);
+                                      without it, the page you had open last
     hyprminimal-settings --apply         regenerate configs from settings.json (no window)
 """
 import copy
@@ -62,6 +63,7 @@ HYPR = HOME / ".config/hypr"
 KEYBIND_LUA = HYPR / "keybind.lua"
 BACKUPS = HYPR / ".pre-hyprminimal-backup"
 THUMBS = HOME / ".cache/hyprminimal/thumbs-v2"   # v1 used a per-run hash and never hit the cache
+UI_STATE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "hyprminimal" / "settings-window.json"
 IDLE_QUIT_SECONDS = 600                       # hidden window stays resident this long for instant reopen
 # Hyprland's Lua config only accepts Lua dispatchers over IPC (note: dpms("on") does NOT mean on)
 DPMS_ON = """hyprctl dispatch 'hl.dsp.dpms({ action = "on" })'"""
@@ -121,6 +123,22 @@ def load_settings():
         return deep_merge(DEFAULTS, json.loads(SETTINGS.read_text()))
     except (OSError, ValueError):
         return copy.deepcopy(DEFAULTS)
+
+
+def last_page():
+    """The page Settings showed last (opening it without --page goes back there)."""
+    try:
+        return json.loads(UI_STATE.read_text()).get("page") or "general"
+    except (OSError, ValueError, AttributeError):
+        return "general"
+
+
+def remember_page(pid):
+    try:
+        UI_STATE.parent.mkdir(parents=True, exist_ok=True)
+        UI_STATE.write_text(json.dumps({"page": pid}) + "\n")
+    except OSError:
+        pass
 
 
 def save_settings(s):
@@ -236,7 +254,7 @@ def fixed_widths_css(font, T, I, W):
 
 
 def clock_zone(b, font, T, I, C, W):
-    """Where the date + clock sit on the bar, for the calendar's hover area (settings/panels.py)."""
+    """Where the date + clock sit on the bar, for the calendar's click area (settings/panels.py)."""
     spacing = 10                                          # waybar config "spacing"
     on = b["widgets"]
     parts = []
@@ -810,9 +828,14 @@ def run_gui(start_page):
 
         # ---- navigation
         def show_page(self, pid):
+            if pid in (None, "last"):
+                pid = last_page()
             pid = {"wifi": "network", "ethernet": "network", "hotspot": "network", "vpn": "network"}.get(pid, pid)
             row = self.pages.get(pid) or self.pages["general"]
-            self.nav.select_row(row)
+            if self.nav.get_selected_row() is row:
+                self._on_nav(self.nav, row)   # already selected: no signal, but its page may have been dropped
+            else:
+                self.nav.select_row(row)
 
         def _on_nav(self, _lb, row):
             if row:
@@ -829,6 +852,9 @@ def run_gui(start_page):
                     self.stack.add_named(child, row.pid)
                     pointerize(self.stack.get_child_by_name(row.pid))
                 self.stack.set_visible_child_name(row.pid)
+                if row.pid != getattr(self, "_remembered", None) and not getattr(self, "_quiet", False):
+                    self._remembered = row.pid
+                    remember_page(row.pid)
                 self.content_page.set_title(row.label)
                 self.update_error_banner()
                 self.split.set_show_content(True)
@@ -1628,8 +1654,10 @@ def run_gui(start_page):
             self.hold()
             self.win = Win(self)
             self.win.connect("close-request", self._on_close)
+            self.win._quiet = True          # prebuilding pages isn't the user visiting them
             self.win.show_page("keybinds")
-            self.win.show_page("general")
+            self.win._quiet = False
+            self.win.show_page("last")
             self.panels.prewarm()           # bar popups too
 
         def _safe_panel(self, kind):
@@ -1684,7 +1712,7 @@ def run_gui(start_page):
                 if self.win is None:
                     self.preload()
                 return 0
-            page = args[args.index("--page") + 1] if "--page" in args and args.index("--page") + 1 < len(args) else "general"
+            page = args[args.index("--page") + 1] if "--page" in args and args.index("--page") + 1 < len(args) else "last"
             self.present_page(page)
             return 0
 
@@ -1701,7 +1729,7 @@ def main():
     if "-h" in sys.argv or "--help" in sys.argv:
         print(__doc__.strip())
         return 0
-    page = sys.argv[sys.argv.index("--page") + 1] if "--page" in sys.argv[:-1] else "general"
+    page = sys.argv[sys.argv.index("--page") + 1] if "--page" in sys.argv[:-1] else "last"
     return run_gui(page)
 
 
