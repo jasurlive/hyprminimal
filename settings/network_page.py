@@ -26,6 +26,7 @@ SIGNAL_ICONS = ["network-wireless-signal-none-symbolic", "network-wireless-signa
                 "network-wireless-signal-excellent-symbolic"]
 OTHER_TYPES = {"vpn": "VPN", "wireguard": "WireGuard", "gsm": "Mobile broadband", "cdma": "Mobile broadband",
                "bluetooth": "Bluetooth tethering", "pppoe": "DSL (PPPoE)"}
+SAVED_SHOWN = 5                               # "Saved networks" rows before "Show all"
 BANDS = [("", "Automatic"), ("bg", "2.4 GHz"), ("a", "5 GHz")]
 OPENVPN = Path("/usr/lib/NetworkManager/VPN/nm-openvpn-service.name")
 IP4_METHODS = [("auto", "Automatic (DHCP)"), ("manual", "Manual"), ("link-local", "Link-local only"),
@@ -138,6 +139,9 @@ class NetworkPage:
         self.nav.add(Adw.NavigationPage(title="Network", tag="main", child=self.page))
         self._busy = self._again = False
         self._groups = []
+        self._spin_btns = []        # refresh/scan buttons: animated dots while nmcli works
+        self._dots = None
+        self._saved_all = False      # "Saved networks": all of them, or just the last SAVED_SHOWN
         self._hs_draft = {"ssid": socket.gethostname(), "psk": secrets.token_urlsafe(9)[:12], "band": ""}
         self._loading = Adw.PreferencesGroup()
         self._loading.add(Adw.ActionRow(title="Loading networks…"))
@@ -253,14 +257,39 @@ class NetworkPage:
             self._again = True
             return
         self._busy = True
+        self._set_busy(True)
 
         def done(d):
             self._busy = False
+            self._set_busy(False)
             self._render(d)
             if self._again:
                 self._again = False
                 self.reload()
         self._bg(lambda: self._fetch(rescan), done)
+
+    def _set_busy(self, on):
+        """Refresh/scan buttons: animated dots (and not clickable) while loading, the refresh icon after
+        (same as the Wi-Fi popup's scan button)."""
+        if self._dots:
+            GLib.source_remove(self._dots)
+            self._dots = None
+        for b in self._spin_btns:
+            b.set_sensitive(not on)
+            if not on:
+                b.set_icon_name("view-refresh-symbolic")
+        if not on or not self._spin_btns:
+            return
+        frames = ["\u2022\u2009\u00b7\u2009\u00b7", "\u00b7\u2009\u2022\u2009\u00b7", "\u00b7\u2009\u00b7\u2009\u2022"]
+        step = [0]
+
+        def tick():
+            for b in self._spin_btns:
+                b.set_label(frames[step[0] % 3])
+            step[0] += 1
+            return True
+        tick()
+        self._dots = GLib.timeout_add(280, tick)
 
     # ---- UI helpers
     def _clear(self):
@@ -292,16 +321,21 @@ class NetworkPage:
     # ---- render
     def _render(self, d):
         self._clear()
+        self._spin_btns = []
         g = self._group()
         air = Adw.SwitchRow(title="Airplane mode", subtitle="Turn off Wi-Fi and mobile radios", active=d["airplane"])
         air.connect("notify::active", lambda r, _p: self._act(
             "Airplane mode " + ("on…" if r.get_active() else "off…"),
             lambda: nmcli("radio", "all", "off" if r.get_active() else "on")))
         g.add(air)
-        refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
-                             tooltip_text="Refresh")
-        refresh.connect("clicked", lambda *_: self.reload())
-        g.set_header_suffix(refresh)
+        hs = d["hotspot"]
+        if not (d["radio"] and d["wdev"]) or (hs and hs["active"]):
+            # no "Nearby networks" section (and its scan button) below: refresh lives up here instead
+            refresh = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                                 tooltip_text="Refresh")
+            refresh.connect("clicked", lambda *_: self.reload())
+            g.set_header_suffix(refresh)
+            self._spin_btns.append(refresh)
 
         self._render_wifi(d)
         self._render_ethernet(d)
@@ -347,8 +381,9 @@ class NetworkPage:
         g = self._group("Nearby networks")
         scan = Gtk.Button(icon_name="view-refresh-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
                           tooltip_text="Scan again")
-        scan.connect("clicked", lambda *_: (self.win.toast("Scanning…"), self.reload(rescan=True)))
+        scan.connect("clicked", lambda *_: self.reload(rescan=True))
         g.set_header_suffix(scan)
+        self._spin_btns.append(scan)
         nearby = [n for n in d["nearby"] if not (a and n["ssid"] == a.get("ssid", a["name"]))]
         if not nearby:
             g.add(Adw.ActionRow(title="No other networks found", css_classes=["dim-label"]))
@@ -360,8 +395,26 @@ class NetworkPage:
         saved = [c for c in d["saved"] if not c["active"] and (c.get("ssid") or c["name"]) not in in_range]
         if saved:
             g = self._group("Saved networks", "Not in range right now")
-            for c in saved:
-                g.add(self._saved_row(c))
+            extra = []
+            for i, c in enumerate(saved):
+                row = self._saved_row(c)
+                g.add(row)
+                if i >= SAVED_SHOWN:
+                    extra.append(row)
+            if extra:                         # only the most recent few by default, so the page stays short
+                more = Gtk.Button(valign=Gtk.Align.CENTER, css_classes=["flat"])
+
+                def apply():
+                    for r in extra:
+                        r.set_visible(self._saved_all)
+                    more.set_label("Show less" if self._saved_all else f"Show all ({len(saved)})")
+
+                def toggle(*_):
+                    self._saved_all = not self._saved_all
+                    apply()
+                more.connect("clicked", toggle)
+                g.set_header_suffix(more)
+                apply()
 
     def _render_ethernet(self, d):
         g = self._group("Ethernet")

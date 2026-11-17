@@ -1,9 +1,9 @@
 # Hover text for the control-centre buttons (Super+S).
+# Keys 1-5 flip the toggles while the panel is open (swaync/cursor/pointer.c).
 # One per line: text the button label contains <TAB> tooltip. Read by swaync/cursor/pointer.c.
-Wi-Fi	Turn the Wi-Fi radio on or off
-Bluetooth	Turn Bluetooth on or off
-Caffeine	Keep the computer awake: no screen dimming, locking or sleep, and closing the lid won't suspend. Turn off to go back to normal.
-Night Light	Warmer screen colours to reduce blue light in the evening
-Do Not Disturb	Hide notification pop-ups; they still collect here
-System	CPU, memory and disk usage
-Session	Lock, log out, restart or shut down
+Wi-Fi	Turn the Wi-Fi radio on or off. The › next to it lists networks (key 1)
+Bluetooth	Turn Bluetooth on or off (key 2)
+Caffeine	Keep the computer awake: no screen dimming, locking or sleep, and closing the lid won't suspend. Turn off to go back to normal. (key 3)
+Night Light	Warmer screen colours to reduce blue light in the evening (key 4)
+Silent	Hide notification pop-ups; they still collect here (key 5)
+System	CPU and memory use. Click for details

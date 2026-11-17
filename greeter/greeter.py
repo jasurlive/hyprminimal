@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""hyprminimal greeter: the lock-screen look (clock, date, login card) as a greetd greeter, plus user selection.
+"""hyprminimal greeter: the lock-screen look (clock, date, login card) as a greetd greeter, with a username field.
 
 Runs as the `greeter` user inside greeter/hyprland.lua. Talks to greetd over $GREETD_SOCK.
   greeter.py           real greeter
   greeter.py --test    windowed preview against a fake greetd (password "test"); Esc quits
 """
-import json, os, pwd, socket, struct, sys, threading
+import json, os, socket, struct, sys, threading
 
 import gi
 gi.require_version("Gtk", "4.0")
@@ -58,25 +58,17 @@ class Greetd:
                 return None
         self.call({"type": "cancel_session"})
         if r.get("error_type") == "auth_error":
-            return "Wrong password"
+            return "Wrong username or password"
         return r.get("description") or "Login failed"
 
 
 class FakeGreetd:
     def login(self, user, password):
         import time; time.sleep(0.6)
-        return None if password == "test" else "Wrong password"
+        return None if password == "test" else "Wrong username or password"
 
 
-# ---------- users ----------
-def users():
-    out = []
-    for p in pwd.getpwall():
-        if 1000 <= p.pw_uid < 60000 and not p.pw_shell.endswith(("nologin", "false")):
-            out.append((p.pw_name, p.pw_gecos.split(",")[0] or p.pw_name))
-    return sorted(out) or [("root", "root")]
-
-
+# ---------- last user (prefilled in the username field) ----------
 def last_user():
     try:
         with open(STATE) as f:
@@ -98,10 +90,8 @@ class Greeter(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="dev.hyprminimal.greeter")
         self.greetd = FakeGreetd() if TEST else Greetd()
-        self.users = users()
-        names = [u for u, _ in self.users]
-        self.idx = names.index(last_user()) if last_user() in names else 0
         self.busy = False
+        self.logged_in = False   # exit status 0 only after a successful login (hyprland.lua then fast-exits)
 
     def do_activate(self):
         css = Gtk.CssProvider()
@@ -121,7 +111,9 @@ class Greeter(Gtk.Application):
             main = main or win
             if TEST:
                 break
-        self.entry.grab_focus()
+        # returning user: straight to the password; otherwise start at the username
+        (self.entry if self.user_entry.get_text() else self.user_entry).grab_focus()
+        self.user_entry.select_region(-1, -1)   # no leftover highlight on the prefilled name
         GLib.timeout_add_seconds(1, self.tick)
         self.tick()
 
@@ -138,9 +130,10 @@ class Greeter(Gtk.Application):
         win.set_child(overlay)
         if with_ui:
             overlay.add_overlay(self.ui())
-            keys = Gtk.EventControllerKey()
-            keys.connect("key-pressed", self.on_key)
-            win.add_controller(keys)
+            if TEST:   # Esc closes the preview
+                keys = Gtk.EventControllerKey()
+                keys.connect("key-pressed", lambda _c, kv, *_: kv == Gdk.KEY_Escape and (self.quit() or True))
+                win.add_controller(keys)
         return win
 
     def ui(self):
@@ -151,26 +144,26 @@ class Greeter(Gtk.Application):
         box.append(self.date)
 
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, css_classes=["card"], halign=Gtk.Align.CENTER)
-        row = Gtk.Box(halign=Gtk.Align.CENTER, css_classes=["user-row"])
-        multi = len(self.users) > 1
-        self.prev = Gtk.Button(label="󰅁", css_classes=["arrow"], visible=multi, can_focus=False)
-        self.next = Gtk.Button(label="󰅂", css_classes=["arrow"], visible=multi, can_focus=False)
-        self.prev.connect("clicked", lambda *_: self.switch(-1))
-        self.next.connect("clicked", lambda *_: self.switch(1))
-        self.user_label = Gtk.Label(css_classes=["user"])
-        row.append(self.prev)
-        row.append(self.user_label)
-        row.append(self.next)
-        card.append(row)
+        self.user_entry = Gtk.Entry(css_classes=["password", "username"], halign=Gtk.Align.CENTER)
+        self.user_entry.set_property("placeholder-text", "Username…")
+        self.user_entry.set_icon_from_icon_name(Gtk.EntryIconPosition.PRIMARY, "avatar-default-symbolic")
+        self.user_entry.set_text(last_user())
+        self.user_entry.connect("activate", lambda *_: self.entry.grab_focus())
+        self.user_entry.connect("changed", lambda *_: self.clear_fail())
+        card.append(self.user_entry)
 
         self.entry = Gtk.PasswordEntry(css_classes=["password"], halign=Gtk.Align.CENTER)
         self.entry.set_property("placeholder-text", "Password…")
         self.entry.connect("activate", self.submit)
-        self.entry.connect("changed", lambda *_: self.entry.remove_css_class("fail"))
+        self.entry.connect("changed", lambda *_: self.clear_fail())
         card.append(self.entry)
         box.append(card)
-        self.show_user()
         return box
+
+    def clear_fail(self):
+        for e in (self.user_entry, self.entry):
+            e.remove_css_class("fail")
+        self.entry.set_property("placeholder-text", "Password…")
 
     def tick(self):
         now = GLib.DateTime.new_now_local()
@@ -181,36 +174,20 @@ class Greeter(Gtk.Application):
             (self.entry.add_css_class if caps.get_caps_lock_state() else self.entry.remove_css_class)("caps")
         return True
 
-    def show_user(self):
-        name, full = self.users[self.idx]
-        self.user_label.set_label(f"󰀄   {full}" if full != name else f"󰀄   {name}")
-
-    def switch(self, step):
-        if self.busy or len(self.users) < 2:
-            return
-        self.idx = (self.idx + step) % len(self.users)
-        self.show_user()
-        self.entry.set_text("")
-        self.entry.grab_focus()
-
-    def on_key(self, _ctl, keyval, _code, _state):
-        if keyval in (Gdk.KEY_Up, Gdk.KEY_Page_Up):
-            self.switch(-1); return True
-        if keyval in (Gdk.KEY_Down, Gdk.KEY_Page_Down):
-            self.switch(1); return True
-        if TEST and keyval == Gdk.KEY_Escape:
-            self.quit(); return True
-        return False
-
     def submit(self, *_):
-        password = self.entry.get_text()
-        if self.busy or not password:
+        user, password = self.user_entry.get_text().strip(), self.entry.get_text()
+        if self.busy:
+            return
+        if not user:
+            self.user_entry.grab_focus()
+            return
+        if not password:
             return
         self.busy = True
+        self.user_entry.set_sensitive(False)
         self.entry.set_sensitive(False)
+        self.entry.set_text("")   # (fires "changed", which resets the placeholder: set it after)
         self.entry.set_property("placeholder-text", "Logging in…")
-        self.entry.set_text("")
-        user = self.users[self.idx][0]
 
         def work():
             try:
@@ -223,9 +200,11 @@ class Greeter(Gtk.Application):
     def done(self, user, err):
         if err is None:
             save_user(user)
+            self.logged_in = True
             self.quit()   # greetd starts the session once the greeter exits
             return False
         self.busy = False
+        self.user_entry.set_sensitive(True)
         self.entry.set_sensitive(True)
         self.entry.add_css_class("fail")
         self.entry.set_property("placeholder-text", err)
@@ -234,4 +213,6 @@ class Greeter(Gtk.Application):
 
 
 if __name__ == "__main__":
-    Greeter().run([sys.argv[0]])
+    app = Greeter()
+    app.run([sys.argv[0]])
+    sys.exit(0 if app.logged_in else 1)

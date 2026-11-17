@@ -11,7 +11,6 @@ swaybg                    # Wallpaper setter for Wayland.
 
 # Hyprland session management
 hyprlock                  # Lock screen when manually locking the session.
-hypridle                  # Idle daemon: automatic screen lock, display timeout, and suspend.
 hyprsunset                # Night light: reduces blue light by adjusting display color temperature.
 
 # Settings app, bar popups, greeter (Python + GTK4)

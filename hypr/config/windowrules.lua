@@ -7,10 +7,6 @@ hl.window_rule({ match = { class = "^hyprpolkitagent$" },                 float 
 hl.window_rule({ match = { title = "^File Operation Progress$" },         float = true, size = "600 50" })
 hl.window_rule({ match = { title = "^(Open File|Save File|All Files)$" }, float = true, size = "900 600", center = 1 })
 
--- Don't idle/lock while a video or browser is fullscreen
-hl.window_rule({ match = { class = "^(.*mpv.*|.*vlc.*|.*celluloid.*)$" },                         idle_inhibit = "fullscreen" })
-hl.window_rule({ match = { class = "^(.*firefox.*|.*chromium.*|.*brave-browser.*|.*zen.*)$" },    idle_inhibit = "fullscreen" })
-
 -- Picture-in-picture
 hl.window_rule({ match = { title = "^([Pp]icture[-\\s]?[Ii]n[-\\s]?[Pp]icture).*$" }, tag = "picture-in-picture" })
 hl.window_rule({ match = { tag = "picture-in-picture" }, float = true, pin = true, keep_aspect_ratio = true, move = "73% 72%", size = "25% 25%" })

@@ -13,14 +13,14 @@ A Noctalia look-alike built only from official Arch packages (no AUR).
 |---|---|---|
 | Bar: workspace pills · `15 \| 17:04` · media capsule, bell, battery, ↓ speed | waybar | `waybar/`, `scripts/media.sh` |
 | Notifications (top right) | swaync | `swaync/` |
-| Control center (Super+S, or click clock/bell): media, Wi-Fi, Bluetooth, Caffeine, Night Light, DND, System, Session | swaync | `swaync/` |
+| Control center (Super+S, or click clock/bell): Wi-Fi, System, toggles on keys 1–5, session buttons, media, notifications | swaync | `swaync/` |
 | Volume / brightness OSD | swayosd | `swayosd/` |
 | Launcher (Super+R); `rm NAME` + Enter uninstalls an app (pacman -Rns + cache clean, asks first) | rofi | `rofi/theme.rasi`, `scripts/launcher.py`, `scripts/remove-app.sh` |
-| Session panel (Lock, Log Out, Lock & Suspend, Reboot, Shut Down, keys 1-5) | rofi | `rofi/menu.rasi`, `scripts/session.sh` |
-| Lock screen (Super+L), lock before suspend | hyprlock + hypridle | `hyprlock/`, `hypridle/` |
+| Session panel (Lock, Lock & Suspend, Reboot, Shut Down, keys 1-4) | rofi | `rofi/menu.rasi`, `scripts/session.sh` |
+| Lock screen (Super+L) | hyprlock | `hyprlock/` |
 | Wallpaper | swaybg | Settings → Wallpaper |
 | Glass blur | Hyprland layer rules | `hypr/layerrules.lua` |
-| Settings (Super+I): bar, wallpaper, notifications, lock & idle, night light, system | hyprminimal-settings | `settings/`, `settings.json` |
+| Settings (Super+I): bar, wallpaper, notifications, lock screen, night light, system | hyprminimal-settings | `settings/`, `settings.json` |
 | Keybinds (Super+H): search, edit, record, add, remove shortcuts | hyprminimal-settings | edits `~/.config/hypr/keybind.lua` |
 | Bar popups: click clock/date (calendar), battery (power mode), ↓ speed (network), media (player) | hyprminimal-settings | `settings/panels.py` |
 

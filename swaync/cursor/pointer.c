@@ -1,11 +1,20 @@
-// pointer.c: LD_PRELOAD shim for swaync, which has no config for either of these:
+// pointer.c: LD_PRELOAD shim for swaync, which has no config for any of these:
 //  - GTK4 CSS has no "cursor" property, so every clickable widget gets a hand pointer when mapped
 //  - buttons get hover text from $HYPRMINIMAL_SWAYNC_TOOLTIPS (lines: label-substring<TAB>tooltip)
+//  - control center: keys 1-9 flip the toggle tiles in reading order, each tile shows its number
+//  - control center: live tile labels without a config reload. scripts/control-center.sh writes
+//    $XDG_RUNTIME_DIR/hyprminimal/cc/labels (lines: label-substring<TAB>new label, \n escaped);
+//    the file "expanded" in that folder grows the notification list, its absence shrinks it
 // Built by bin/hyprminimal on start: gcc -shared -fPIC $(pkg-config --cflags --libs gtk4)
 #include <gtk/gtk.h>
 #include <string.h>
 
-static GPtrArray *tips;   // pairs: needle, text
+#define LIST_COLLAPSED 76    // px of notification list: one card
+#define LIST_EXPANDED 560
+
+static GPtrArray *tips;      // pairs: needle, text
+static GtkWidget *cc;        // the control-center window, once seen
+static char *ccdir;          // $XDG_RUNTIME_DIR/hyprminimal/cc
 
 static void load_tips(void) {
   const char *path = g_getenv("HYPRMINIMAL_SWAYNC_TOOLTIPS");
@@ -23,22 +32,174 @@ static void load_tips(void) {
   g_free(data);
 }
 
+// the text label of a button: its child, or inside the overlay a number badge put around it
+static GtkLabel *button_label(GtkWidget *b) {
+  GtkWidget *c = gtk_button_get_child(GTK_BUTTON(b));
+  if (c && GTK_IS_OVERLAY(c)) c = gtk_overlay_get_child(GTK_OVERLAY(c));
+  return c && GTK_IS_LABEL(c) ? GTK_LABEL(c) : NULL;
+}
+
 static void set_tip(GtkWidget *w) {
   if (!tips || gtk_widget_get_tooltip_text(w)) return;
-  const char *lab = gtk_button_get_label(GTK_BUTTON(w));
-  if (!lab) {   // label may be a child widget instead of the button's own label
-    GtkWidget *c = gtk_button_get_child(GTK_BUTTON(w));
-    if (c && GTK_IS_LABEL(c)) lab = gtk_label_get_text(GTK_LABEL(c));
-  }
+  GtkLabel *l = button_label(w);
+  const char *lab = l ? gtk_label_get_text(l) : NULL;
   if (!lab) return;
   for (guint i = 0; i + 1 < tips->len; i += 2)
     if (strstr(lab, tips->pdata[i])) { gtk_widget_set_tooltip_text(w, tips->pdata[i + 1]); return; }
 }
 
+// ---------------------------------------------------------------- control center
+// swaync's big "No Notifications" picture: the header button already says so
+static void cc_apply(void);
+static gboolean apply_idle(gpointer d) { (void)d; cc_apply(); return G_SOURCE_REMOVE; }
+static void keep_hidden(GtkWidget *w) {
+  if (gtk_widget_get_visible(w)) { gtk_widget_set_visible(w, FALSE); g_idle_add(apply_idle, NULL); }
+}
+
+static void walk(GtkWidget *w, gboolean in_grid, GPtrArray *buttons, GPtrArray *toggles, GtkWidget **list) {
+  if (list && gtk_widget_has_css_class(w, "control-center-list-placeholder")
+      && !g_object_get_data(G_OBJECT(w), "hyprminimal-hidden")) {
+    g_object_set_data(G_OBJECT(w), "hyprminimal-hidden", GINT_TO_POINTER(1));
+    g_signal_connect(w, "notify::visible", G_CALLBACK(keep_hidden), NULL);
+    keep_hidden(w);
+  }
+  if (list && gtk_widget_has_css_class(w, "control-center")) {
+    // swaync fixes the panel height; let it follow the content instead (top-anchored, capped by the screen)
+    int width;
+    gtk_widget_get_size_request(w, &width, NULL);
+    gtk_widget_set_size_request(w, width, -1);
+    gtk_widget_set_valign(w, GTK_ALIGN_START);
+    gtk_widget_set_vexpand(w, FALSE);
+    if (GTK_IS_SCROLLED_WINDOW(w)) gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(w), TRUE);
+  }
+  in_grid = in_grid || gtk_widget_has_css_class(w, "widget-buttons-grid");
+  if (in_grid && GTK_IS_BUTTON(w)) {
+    if (buttons) g_ptr_array_add(buttons, w);
+    if (toggles && GTK_IS_TOGGLE_BUTTON(w)) g_ptr_array_add(toggles, w);
+    return;
+  }
+  if (list && !*list && gtk_widget_has_css_class(w, "control-center-list")) {
+    GtkWidget *sw = gtk_widget_get_ancestor(w, GTK_TYPE_SCROLLED_WINDOW);   // the notification list's own
+    if (sw) *list = sw;
+  }
+  for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c))
+    walk(c, in_grid, buttons, toggles, list);
+}
+
+static void badge(GtkWidget *b, guint n) {
+  GtkWidget *c = gtk_button_get_child(GTK_BUTTON(b));
+  if (!c || !GTK_IS_LABEL(c)) return;   // already has one (or not a text button)
+  g_object_ref(c);
+  GtkWidget *ov = gtk_overlay_new();
+  gtk_button_set_child(GTK_BUTTON(b), ov);
+  gtk_overlay_set_child(GTK_OVERLAY(ov), c);
+  g_object_unref(c);
+  char num[4];
+  g_snprintf(num, sizeof num, "%u", n);
+  GtkWidget *k = gtk_label_new(num);
+  gtk_widget_add_css_class(k, "key-hint");
+  gtk_widget_set_halign(k, GTK_ALIGN_END);
+  gtk_widget_set_valign(k, GTK_ALIGN_START);
+  gtk_widget_set_can_target(k, FALSE);
+  gtk_overlay_add_overlay(GTK_OVERLAY(ov), k);
+}
+
+// labels file, badges, centred two-line labels, list height: cheap, run on show and on file changes
+static void cc_apply(void) {
+  if (!cc) return;
+  GPtrArray *buttons = g_ptr_array_new(), *toggles = g_ptr_array_new();
+  GtkWidget *list = NULL;
+  walk(cc, FALSE, buttons, toggles, &list);
+
+  char *path = g_build_filename(ccdir, "labels", NULL), *data = NULL;
+  char **lines = g_file_get_contents(path, &data, NULL, NULL) ? g_strsplit(data, "\n", -1) : NULL;
+  char *ex = g_build_filename(ccdir, "expanded", NULL);
+  gboolean expanded = g_file_test(ex, G_FILE_TEST_EXISTS);
+
+  for (guint i = 0; i < buttons->len; i++) {
+    GtkLabel *l = button_label(buttons->pdata[i]);
+    if (!l) continue;
+    gtk_label_set_justify(l, GTK_JUSTIFY_CENTER);
+    for (char **ln = lines; ln && *ln; ln++) {
+      char *tab = strchr(*ln, '\t');
+      if (!tab || tab == *ln) continue;
+      *tab = 0;
+      if (strstr(gtk_label_get_text(l), *ln)) {
+        char *text = g_strcompress(tab + 1), *arrow;
+        if (expanded && (arrow = strstr(text, "󰅀"))) memcpy(arrow, "󰅃", strlen("󰅃"));   // same length
+        if (strcmp(text, gtk_label_get_text(l))) gtk_label_set_text(l, text);
+        g_free(text);
+      }
+      *tab = '\t';
+    }
+  }
+  for (guint i = 0; i < toggles->len && i < 9; i++) badge(toggles->pdata[i], i + 1);
+  if (list) {
+    // nothing listed: hide the whole notification area (the header says "No notifications")
+    GtkWidget *rows = NULL, *area = gtk_widget_get_ancestor(list, GTK_TYPE_STACK);
+    area = area ? gtk_widget_get_parent(area) : NULL;
+    for (GtkWidget *c = gtk_widget_get_first_child(list); c && !rows; c = gtk_widget_get_first_child(c))
+      if (gtk_widget_has_css_class(c, "control-center-list")) rows = gtk_widget_get_first_child(c);
+    if (area) gtk_widget_set_visible(area, rows != NULL);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(list), TRUE);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(list), expanded ? LIST_EXPANDED : LIST_COLLAPSED);
+    gtk_widget_set_vexpand(list, FALSE);
+  }
+  gtk_widget_queue_resize(cc);   // re-measure with the new labels and sizes
+  g_strfreev(lines);
+  g_free(data); g_free(path); g_free(ex);
+  g_ptr_array_free(buttons, TRUE); g_ptr_array_free(toggles, TRUE);
+}
+
+static void on_dir_change(GFileMonitor *m, GFile *f, GFile *o, GFileMonitorEvent e, gpointer d) {
+  (void)m; (void)f; (void)o; (void)d;
+  if (e == G_FILE_MONITOR_EVENT_CHANGES_DONE_HINT || e == G_FILE_MONITOR_EVENT_CREATED
+      || e == G_FILE_MONITOR_EVENT_DELETED || e == G_FILE_MONITOR_EVENT_MOVED_IN
+      || e == G_FILE_MONITOR_EVENT_RENAMED)
+    cc_apply();
+}
+
+static gboolean on_key(GtkEventControllerKey *k, guint keyval, guint code, GdkModifierType mods, gpointer win) {
+  (void)k; (void)code;
+  if (mods & (GDK_CONTROL_MASK | GDK_ALT_MASK | GDK_SUPER_MASK)) return FALSE;
+  guint n = keyval >= GDK_KEY_1 && keyval <= GDK_KEY_9 ? keyval - GDK_KEY_1
+          : keyval >= GDK_KEY_KP_1 && keyval <= GDK_KEY_KP_9 ? keyval - GDK_KEY_KP_1 : G_MAXUINT;
+  if (n == G_MAXUINT) return FALSE;
+  GtkWidget *focus = gtk_root_get_focus(GTK_ROOT(win));
+  if (focus && GTK_IS_EDITABLE(focus)) return FALSE;   // typing an inline reply
+  GPtrArray *t = g_ptr_array_new();
+  walk(GTK_WIDGET(win), FALSE, NULL, t, NULL);
+  gboolean hit = n < t->len;
+  if (hit) gtk_widget_activate(t->pdata[n]);
+  g_ptr_array_free(t, TRUE);
+  return hit;
+}
+
+static void cc_found(GtkWidget *win) {
+  if (cc == win) return;
+  cc = win;
+  g_object_add_weak_pointer(G_OBJECT(cc), (gpointer *)&cc);
+  GtkEventController *k = gtk_event_controller_key_new();
+  gtk_event_controller_set_propagation_phase(k, GTK_PHASE_CAPTURE);
+  g_signal_connect(k, "key-pressed", G_CALLBACK(on_key), win);
+  gtk_widget_add_controller(win, k);
+  static GFileMonitor *mon;
+  if (!mon) {
+    g_mkdir_with_parents(ccdir, 0700);
+    GFile *dir = g_file_new_for_path(ccdir);
+    mon = g_file_monitor_directory(dir, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
+    if (mon) g_signal_connect(mon, "changed", G_CALLBACK(on_dir_change), NULL);
+    g_object_unref(dir);
+  }
+}
+
 static gboolean on_map(GSignalInvocationHint *hint, guint n, const GValue *params, gpointer data) {
   (void)hint; (void)n; (void)data;
   GtkWidget *w = g_value_get_object(&params[0]);
-  if (g_getenv("HYPRMINIMAL_POINTER_DEBUG")) g_message("map %s", G_OBJECT_TYPE_NAME(w));
+  if (gtk_widget_has_css_class(w, "control-center")) {
+    GtkRoot *r = gtk_widget_get_root(w);
+    if (r) { cc_found(GTK_WIDGET(r)); cc_apply(); }
+  }
   if (GTK_IS_BUTTON(w)) set_tip(w);
   if (GTK_IS_BUTTON(w) || GTK_IS_SWITCH(w) || GTK_IS_SCALE(w) || GTK_IS_CHECK_BUTTON(w)
       || GTK_IS_DROP_DOWN(w))
@@ -48,6 +209,7 @@ static gboolean on_map(GSignalInvocationHint *hint, guint n, const GValue *param
 
 __attribute__((constructor)) static void hyprminimal_pointer_init(void) {
   load_tips();
+  ccdir = g_build_filename(g_get_user_runtime_dir(), "hyprminimal", "cc", NULL);
   // we're loaded now: commands swaync runs (bluetoothctl, GTK3 apps…) must not get this GTK4 shim
   g_unsetenv("LD_PRELOAD");
   // signals exist only once the class is initialised; without this the lookup returns 0

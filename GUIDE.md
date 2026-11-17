@@ -18,14 +18,14 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 
 | Command | What it does |
 |---|---|
-| `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, wallpaper, idle). It refuses to start if a package from `packages.txt` is missing and prints the `pacman` line to install it. |
+| `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, wallpaper). It refuses to start if a package from `packages.txt` is missing and prints the `pacman` line to install it. |
 | `hyprminimal stop` | Stops hyprminimal, for this session only. |
 | `hyprminimal restart` | Restarts everything, including the settings process. Run it after editing any file in this folder by hand. |
-| `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync`, `swayosd-server`, `swaybg` or `hypridle`. |
+| `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync`, `swayosd-server` or `swaybg`. |
 | `hyprminimal status` | Shows whether hyprminimal is active and which components are running. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
 | `sudo hyprminimal-autologin enable\|disable\|status` | Boots straight to the hyprminimal lock screen, which then acts as the login screen (greetd). |
-| `sudo hyprminimal-greeter install\|uninstall\|status` | The login screen after you log out: lock-screen look with user selection (Up/Down or the arrows). Re-run install after changing wallpaper or monitors. |
+| `sudo hyprminimal-greeter install\|uninstall\|status` | The login screen after you log out: lock-screen look with a username field (prefilled with the last user) and password. Re-run install after changing monitors; its background follows the lock screen wallpaper by itself. |
 
 All of these are in `~/www/hyprminimal/bin/`.
 
@@ -42,7 +42,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Key | Action |
 |---|---|
 | Super+R | Launcher. Apps are numbered and the most recently used come first. Type `rm NAME` (or `rm NUMBER`) + Enter to uninstall that app: a terminal shows what will go and asks first, then runs `pacman -Rns` (app, unneeded dependencies, its /etc config), `pacman -Sc` (cache) and offers to delete its folders in ~/.config, ~/.local/share, ~/.cache. Flatpaks use `flatpak uninstall --delete-data`. |
-| Super+S | Control center: media, Wi-Fi, Bluetooth, Caffeine, Night Light, DND, System, Session |
+| Super+S | Control center: Wi-Fi, System, toggles (keys 1–5), Lock / Reboot / Shut Down, media, notifications |
 | Super+C | VS Code (`code`) |
 | Super+I | Settings |
 | Super+H | Keybinds editor |
@@ -59,21 +59,27 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Media capsule | Player |
 | Bell | Control center |
 
-### Session menu (keys 1–5)
+### Session menu (keys 1–4)
 
 The menu is opened from the control center. Its entries:
 
 1. Lock
-2. Log Out
-3. Lock & Suspend
-4. Reboot
-5. Shut Down
+2. Lock & Suspend
+3. Reboot
+4. Shut Down
 
-### Control center toggles
+### Control center toggles (keys 1–5)
 
-- **Caffeine** blocks idle, sleep and lid-close until you turn it off.
-- **Night Light** turns `hyprsunset` on or off at the temperature set in Settings.
-- **DND** hides notification popups. Notifications still collect in the control center.
+While the control center is open, a number key flips a toggle. Each tile shows its number in the corner.
+
+1. **Wi-Fi** turns the radio on or off. The › next to it lists networks.
+2. **Bluetooth**
+3. **Caffeine** blocks sleep and lid-close until you turn it off.
+4. **Night Light** turns `hyprsunset` on or off at the temperature set in Settings.
+5. **Silent** hides notification popups. Notifications still collect in the control center.
+
+Notifications sit under the buttons. The list opens collapsed to one card; click the
+"N notifications" header to show them all.
 
 ---
 
@@ -131,16 +137,12 @@ Any key that is missing from the file falls back to its default.
 | Background opacity | `notifications.opacity` | 0.3–1 | 0.70 |
 | Do not disturb | — | live toggle | off |
 
-### Lock & Idle
+### Lock Screen
 | Setting | Key | Range | Default |
 |---|---|---|---|
 | Lock screen wallpaper | `lock.wallpaper` | image file | — |
-| Lock before sleep | `lock.lock_before_sleep` | true / false | true |
-| Lock after | `lock.lock_minutes` | 0–240 min | 0 |
-| Turn screen off after | `lock.screen_off_minutes` | 0–240 min | 0 |
-| Suspend after | `lock.suspend_minutes` | 0–480 min | 0 |
 
-For the three timers, **0 turns them off**. They are rendered into `.generated/hypridle.conf`.
+hyprminimal has no idle daemon: the screen never locks, turns off or suspends by itself. Lock with **Super+L**.
 
 ### Startup
 Commands to run at login, stored in `startup.commands` as `{"command": "...", "enabled": true}`.
@@ -181,7 +183,7 @@ Output goes to `$XDG_RUNTIME_DIR/hyprminimal/startup.log`.
 See [section 3](#3-keybinds).
 
 ### System
-- **Restart hyprminimal**: reloads bar, notifications, OSD and idle (starts it if it isn't running).
+- **Restart hyprminimal**: reloads bar, notifications and OSD (starts it if it isn't running).
 - **Shortcuts to other tools**:
 
   | Button | Opens |
@@ -288,7 +290,7 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 |---|---|
 | Your settings | `settings.json` |
 | Generated configs (never edit these) | `.generated/`, rebuilt from `settings.json` |
-| Hand-editable base configs | `waybar/`, `swaync/`, `swayosd/`, `rofi/`, `hyprlock/`, `hypridle/`, `colors/` (written in Tokyo Night colours; themed copies go to `.generated/`) |
+| Hand-editable base configs | `waybar/`, `swaync/`, `swayosd/`, `rofi/`, `hyprlock/`, `colors/` (written in Tokyo Night colours; themed copies go to `.generated/`) |
 | Themes | `settings/themes.py` |
 | Logs | `$XDG_RUNTIME_DIR/hyprminimal/*.log` (usually `/run/user/1000/hyprminimal/`). The previous run of each log is kept as `NAME.log.1`. |
 | "hyprminimal is active" flag | `$XDG_RUNTIME_DIR/hyprminimal/active` |
@@ -304,10 +306,9 @@ Log files:
 | `swaync.log` | Notifications and control center |
 | `swayosd.log` | Volume/brightness OSD |
 | `swaybg.log` | Wallpaper |
-| `hypridle.log` | Idle timers |
 | `settings.log` | Settings app and bar popups |
 | `watchdog.log` | Watchdog |
-| `shim-build.log` | Build of the control center's cursor shim |
+| `shim-build.log` | Build of the control center shim (cursor, tooltips, keys, live labels) |
 
 ---
 
@@ -363,7 +364,7 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 **Bar popups (calendar, battery, network, media) don't appear or appear in the wrong place**
 - They need `gtk4-layer-shell` (`/usr/lib/libgtk4-layer-shell.so`). Install it with `sudo pacman -S gtk4-layer-shell`, then run `hyprminimal restart`.
 
-**Control center: no hand cursor or tooltips** (a notification says the build failed)
+**Control center: no hand cursor, tooltips, key numbers or live Wi-Fi/System info** (a notification says the build failed)
 - The small C shim in `swaync/cursor/pointer.c` couldn't be compiled.
 - Install the build tools: `sudo pacman -S --needed gcc pkgconf gtk4`. Then run `hyprminimal restart`.
 - The compiler output is in `shim-build.log`.
@@ -386,11 +387,6 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 
 **Black or plain background instead of the wallpaper**
 - The image file was moved or deleted. Choose it again in Settings → Wallpaper.
-
-**The screen doesn't lock or turn off when idle**
-- Check that the timers in Settings → Lock & Idle aren't set to 0. A timer set to 0 is off.
-- Check whether Caffeine is on in the control center.
-- Then run `hyprminimal respawn hypridle` and check `hypridle.log`.
 
 **The lock screen is stuck or won't accept your password**
 - Make sure Caps Lock is off and the keyboard layout is the one your password uses.

@@ -24,5 +24,7 @@ hl.config({
 })
 
 hl.on("hyprland.start", function()
-    hl.exec_cmd([[sh -c 'python3 ]] .. dir .. [[/greeter.py; hyprctl dispatch "hl.dsp.exit()"']])
+    -- logged in: fast-exit.sh ends this compositor at once (a clean exit costs ~1 s before greetd starts
+    -- your session). Otherwise (greeter crashed or quit): the normal clean exit, greetd shows it again.
+    hl.exec_cmd([[sh -c 'python3 ]] .. dir .. [[/greeter.py && sh ]] .. dir .. [[/fast-exit.sh || hyprctl dispatch "hl.dsp.exit()"']])
 end)

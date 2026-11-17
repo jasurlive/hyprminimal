@@ -6,8 +6,18 @@ cmd=${1:-}; shift
 
 case $cmd in
   launcher)       pkill -x rofi || exec python3 -I "$DIR/scripts/launcher.py" ;;   # numbered, last used first
-  lock)           conf="$DIR/.generated/hyprlock.conf"; [[ -f $conf ]] || conf="$DIR/hyprlock/hyprlock.conf"
-                  pidof hyprlock >/dev/null || exec hyprlock -c "$conf" ;;
+  lock)           # hyprlock can crash on resume (AMD/Mesa abort when the screen comes back), which leaves
+                  # Hyprland's red "lockscreen app died" page. Hyprland lets a new locker take over the
+                  # lock (misc.allow_session_lock_restore), so restart hyprlock until it exits 0 (= unlocked).
+                  conf="$DIR/.generated/hyprlock.conf"; [[ -f $conf ]] || conf="$DIR/hyprlock/hyprlock.conf"
+                  R=${XDG_RUNTIME_DIR:-/tmp}/hyprminimal; mkdir -p "$R"
+                  exec 9>"$R/lock.lock"; flock -n 9 || exit 0   # one supervisor (keybind + menu)
+                  pidof hyprlock >/dev/null && exit 0
+                  for (( tries = 0; tries < 20; tries++ )); do
+                    hyprlock -c "$conf" 9>&- && exit 0
+                    rc=$?; echo "[$(date +%T)] hyprlock exited with $rc, restarting" >> "$R/hyprlock.log"
+                    sleep 0.5
+                  done ;;
   control-center) exec "$DIR/scripts/control-center.sh" ;;   # live info in the tiles, then toggle
   panel)          exec "$DIR/bin/hyprminimal-settings" --panel "$1" ;;   # calendar | battery | network | media
   panel-close)    # close the open bar popup (sent by Hyprland on a click outside it, see hypr/layerrules.lua)
@@ -44,7 +54,7 @@ case $cmd in
   settings)       exec "$DIR/bin/hyprminimal-settings" ;;
   errors)         # bar error pill: open Settings on the page of the first failed part
                   declare -A P=([waybar]=bar [swaync]=notifications [swayosd-server]=system [swaybg]=wallpaper
-                                [hypridle]=lock [settings]=general)
+                                [settings]=general)
                   page=general
                   for f in "${XDG_RUNTIME_DIR:-/tmp}"/hyprminimal/errors/*; do [[ -f $f ]] && { page=${P[${f##*/}]:-general}; break; }; done
                   exec "$DIR/bin/hyprminimal-settings" --page "$page" ;;
