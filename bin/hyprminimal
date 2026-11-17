@@ -66,11 +66,11 @@ start_one() {   # start a single component (not running already)
       [[ ${SHIM_FAILED:-} ]] && notify normal "Control centre: no pointer cursor/tooltips" \
         "Building swaync/cursor/pointer.c failed (needs gcc and gtk4 headers). Details: $RUN/shim-build.log" ;;
     swayosd-server)
-      spawn swayosd swayosd-server --config "$DIR/swayosd/config.toml" --style "$DIR/swayosd/style.css" ;;
+      spawn swayosd swayosd-server --config "$DIR/swayosd/config.toml" --style "$(f=$GEN/swayosd.css; [[ -f $f ]] && echo "$f" || echo "$DIR/swayosd/style.css")" ;;
     swaybg)   # optional $2: image path (default: the saved wallpaper)
       local wp=${2:-$(cat "$GEN/wallpaper" 2>/dev/null)} old; old=$(pgrep -x swaybg)
       if [[ -f $wp ]]; then spawn swaybg swaybg -o '*' -i "$wp" -m fill
-      else spawn swaybg swaybg -o '*' -c '#222436'; fi
+      else spawn swaybg swaybg -o '*' -c "$(cat "$GEN/wall_bg" 2>/dev/null || echo '#222436')"; fi
       # new one first, then drop the old: no black flash when the wallpaper changes
       [[ $old ]] && { sleep 0.3; kill $old 2>/dev/null; } ;;
     hypridle)
@@ -288,7 +288,9 @@ case ${1:-} in
     [[ -e $RUN/active ]] || { echo "hyprminimal is not active"; exit 1; }
     # the settings process caches its code: restart it too so edits always take effect
     gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-      --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1; sleep 0.3
+      --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
+    # wait until it's really gone (up to 3 s), or start_components sees it and doesn't start a new one
+    for _ in $(seq 30); do pgrep -f '[h]yprminimal_settings.py' >/dev/null || break; sleep 0.1; done
     rm -rf "$RUN/fallback" "$ERR"
     stop_components; start_components; echo "hyprminimal restarted"
     ;;

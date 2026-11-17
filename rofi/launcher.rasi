@@ -38,7 +38,7 @@ element normal.active, element alternate.active { background-color: #2c314a99; t
 element selected.normal, element selected.active {
     background-color: #7a88cf33;
     text-color:       @on-surface-v;
-    border: 0 0 0 3px; border-color: @primary;
+    border: 0;
 }
 element-icon { size: 30px; vertical-align: 0.5; }
 element-text { font: "Noto Sans 13"; vertical-align: 0.5; }

@@ -10,13 +10,22 @@ CMD="env XDG_CACHE_HOME=$STATE XDG_DATA_HOME=$STATE XDG_STATE_HOME=$STATE start-
 OWNER=${SUDO_USER:-$(stat -c %U "$DIR")}
 HOMEDIR=$(getent passwd "$OWNER" | cut -d: -f6)
 
-# rewrite the [default_session] section of greetd's config (keeps [terminal] and [initial_session])
-set_default_session() {
-  awk -v cmd="$1" '
-    /^\[/ { skip = ($0 == "[default_session]") }
-    !skip { print }
-    END { print "[default_session]"; print "command = \"" cmd "\""; print "user = \"greeter\"" }
-  ' "$CONF" > "$CONF.new" && mv "$CONF.new" "$CONF" && chmod 644 "$CONF"
+# write greetd's whole config: the greeter at boot and after logout, nothing else.
+# Never keeps old sections: a leftover [initial_session] (autologin from another setup) would skip the
+# login screen, and a leftover [default_session] can point at a greeter that is no longer installed.
+# Autologin is added back on top of this only by: sudo hyprminimal-autologin enable
+write_config() {
+  cat > "$CONF.new" <<EOF
+# hyprminimal: greetd shows the hyprminimal login screen at boot and after logout.
+# Installed by: sudo bin/hyprminimal-greeter install
+[terminal]
+vt = 1
+
+[default_session]
+command = "$1"
+user = "greeter"
+EOF
+  chmod 644 "$CONF.new" && mv "$CONF.new" "$CONF"
 }
 
 case ${1:-status} in
@@ -24,6 +33,8 @@ case ${1:-status} in
     [[ $EUID == 0 ]] || { echo "run with sudo"; exit 1; }
     install -d -m 755 "$DEST"
     install -m 644 "$DIR/greeter/greeter.py" "$DIR/greeter/style.css" "$DIR/greeter/hyprland.lua" "$DEST/"
+    # themed copy from Settings -> General -> Theme
+    [[ -f $DIR/.generated/greeter.css ]] && install -m 644 "$DIR/.generated/greeter.css" "$DEST/style.css"
     [[ -f $HOMEDIR/.config/hypr/monitors.lua ]] && install -m 644 "$HOMEDIR/.config/hypr/monitors.lua" "$DEST/"
     # wallpaper from the lock screen config, pre-blurred and dimmed like hyprlock
     lock="$DIR/.generated/hyprlock.conf"; [[ -f $lock ]] || lock="$DIR/hyprlock/hyprlock.conf"
@@ -35,9 +46,10 @@ case ${1:-status} in
       echo "warning: wallpaper '$wp' not found, using a plain background"; rm -f "$DEST/background.png"
     fi
     install -d -m 755 -o greeter -g greeter "$STATE"
-    [[ -f $BAK ]] || cp -p "$CONF" "$BAK"
-    set_default_session "$CMD"
-    echo "greeter installed. Log out to see it. Undo: sudo $0 uninstall" ;;
+    [[ -f $CONF && ! -f $BAK ]] && cp -p "$CONF" "$BAK"
+    grep -q '^\[initial_session\]' "$CONF" 2>/dev/null && echo "note: removed autologin ([initial_session]) from $CONF"
+    write_config "$CMD"
+    echo "greeter installed. Reboot or log out to see it. Undo: sudo $0 uninstall" ;;
   uninstall)
     [[ $EUID == 0 ]] || { echo "run with sudo"; exit 1; }
     if [[ -f $BAK ]]; then cp -p "$BAK" "$CONF" && rm -f "$BAK"; fi

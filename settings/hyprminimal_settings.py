@@ -19,6 +19,9 @@ import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # -I drops the script dir
+import themes  # noqa: E402
+
 DIR = Path(__file__).resolve().parent.parent           # the cloned repo (linked at ~/.local/share/hyprminimal)
 SETTINGS = DIR / "settings.json"
 GEN = DIR / ".generated"
@@ -66,7 +69,7 @@ DPMS_OFF = """hyprctl dispatch 'hl.dsp.dpms({ action = "off" })'"""
 
 # --------------------------------------------------------------------------- settings
 DEFAULTS = {
-    "general": {"font": "Noto Sans"},
+    "general": {"font": "Noto Sans", "theme": themes.DEFAULT, "glass": True},
     "bar": {
         "position": "top", "height": 45, "opacity": 0.30,
         "font_size": 16, "icon_size": 20, "clock_size": 18, "font_weight": 500,   # one type scale
@@ -232,6 +235,27 @@ def fixed_widths_css(font, T, I, W):
             f'#custom-media.playing {{ min-width: {media + 2 - 50}px; }}\n')   # its padding is 50px wider
 
 
+def clock_zone(b, font, T, I, C, W):
+    """Where the date + clock sit on the bar, for the calendar's hover area (settings/panels.py)."""
+    spacing = 10                                          # waybar config "spacing"
+    on = b["widgets"]
+    parts = []
+    if on.get("date"):
+        parts.append(text_px("88.88 Wed |", font, T, W))
+    if on.get("clock"):
+        parts.append(text_px("88:88" if b["clock_24h"] else "88:88 PM", font, C, W))
+    before = 0                                            # cpu / ram sit left of the date in the centre
+    pct = round(100 * I / T)
+    for key, sample in (("cpu", "\U000f04c5  100%"), ("ram", "\U000f035b  88.8G")):
+        if on.get(key):
+            icon, _, rest = sample.partition("  ")
+            before += text_px(f"<span size='{pct}%'>{icon}</span>  {rest}", font, T, W) + spacing
+    width = sum(parts) + spacing * max(0, len(parts) - 1)
+    zone = {"position": b["position"], "height": int(b["height"]), "margin": 4,
+            "width": width + 24 if parts else 0, "offset": before / 2}
+    (GEN / "clock_zone.json").write_text(json.dumps(zone) + "\n")
+
+
 def render(s):
     """Write .generated/* from the repo configs + settings.json."""
     GEN.mkdir(exist_ok=True)
@@ -268,8 +292,10 @@ def render(s):
     (GEN / "waybar.json").write_text(json.dumps(wb, indent=2, ensure_ascii=False), encoding="utf-8")
     font = s["general"]["font"].replace('"', "")
     T, I, C, W = int(b["font_size"]), int(b["icon_size"]), int(b["clock_size"]), int(b["font_weight"])
+    g = s["general"]
+    th, glass = themes.get(g.get("theme")), bool(g.get("glass", True))
     (GEN / "waybar.css").write_text(
-        f'@import url("file://{DIR}/waybar/style.css");\n'
+        themes.palette_css(th) + themed_css(DIR / "waybar/style.css", th) +
         f'* {{ font-family: "{font}", "Symbols Nerd Font"; font-size: {T}px; font-weight: {W}; }}\n'
         f'window#waybar {{ background: alpha(@surface, {float(b["opacity"]):.2f}); }}\n'
         f'#clock {{ font-size: {C}px; font-weight: {W}; }}\n'
@@ -279,7 +305,9 @@ def render(s):
         f'#workspaces button.active {{ min-width: {round(I * 2.6)}px; }}\n'
         f'#custom-media {{ border-radius: {round(I * 0.85)}px; }}\n'
         + battery_css(int(b["height"]), I, W)
-        + fixed_widths_css(font, T, I, W))
+        + fixed_widths_css(font, T, I, W)
+        + (themes.glass_gtk3(th, "waybar") if glass else ""))
+    clock_zone(b, font, T, I, C, W)
     # scripts that print icons inline (media, network) size them relative to the text
     (GEN / "icon_scale").write_text(f"{round(100 * I / T)}\n")
 
@@ -292,10 +320,12 @@ def render(s):
     sc["timeout-low"] = int(n["timeout"])        # same for all, so the countdown bar is always right
     (GEN / "swaync.json").write_text(json.dumps(sc, indent=2, ensure_ascii=False), encoding="utf-8")
     (GEN / "swaync.css").write_text(
-        f'@import url("file://{DIR}/swaync/style.css");\n'
+        themes.palette_css(th) + themed_css(DIR / "swaync/style.css", th) +
         f'* {{ font-family: "{font}", "Symbols Nerd Font"; }}\n'
         f'.notification {{ background-color: alpha(@surface, {float(n["opacity"]):.2f}); }}\n'
-        f'.floating-notifications .notification:not(.critical) {{ animation-duration: {int(n["timeout"])}s; }}\n')
+        f'.floating-notifications .notification:not(.critical) {{ animation-duration: {int(n["timeout"])}s; }}\n'
+        + (themes.glass_gtk3(th, "swaync") + f'.notification {{ background-color: alpha(@surface, '
+           f'{max(float(n["opacity"]), 0.88):.2f}); }}\n' if glass else ""))
 
     # hyprlock
     lk = s["lock"]
@@ -303,6 +333,7 @@ def render(s):
     lock = re.sub(r"(background \{.*?\n\s*path = ).*?\n", lambda m: m.group(1) + lk["wallpaper"] + "\n",
                   lock, count=1, flags=re.S)
     lock = lock.replace("$font     = Noto Sans", f"$font     = {font}")
+    lock = themes.recolor(lock, th)
     (GEN / "hyprlock.conf").write_text(lock, encoding="utf-8")
 
     # hypridle
@@ -328,10 +359,48 @@ def render(s):
         " ".join(c["command"].split("\n")).strip() + "\n" for c in s["startup"]["commands"]
         if c.get("enabled", True) and c.get("command", "").strip()))
 
+    render_theme(th, glass)
+
     # simple values the shell scripts read
     (GEN / "wallpaper").write_text(s["wallpaper"]["path"] + "\n")
     (GEN / "nightlight").write_text(
         f"{'on' if s['nightlight']['enabled'] else 'off'} {int(s['nightlight']['temperature'])}\n")
+
+
+def themed_css(path, theme):
+    """A repo stylesheet recoloured for the theme, without its @import of colors/palette.css."""
+    text = path.read_text(encoding="utf-8")
+    return themes.recolor(re.sub(r'^@import "\.\./colors/palette\.css";\n', "", text, flags=re.M), theme) + "\n"
+
+
+def render_theme(th, glass):
+    """Everything else that follows the theme: OSD, launcher, terminal, Hyprland borders, greeter."""
+    (GEN / "theme").write_text(f"{th} {'glass' if glass else 'solid'} {'dark' if themes.roles(th)['dark'] else 'light'}\n")
+    (GEN / "palette.css").write_text(themes.palette_css(th))
+    (GEN / "swayosd.css").write_text(themed_css(DIR / "swayosd/style.css", th)
+                                     + (themes.glass_osd(th) if glass else ""))
+    rofi = GEN / "rofi"
+    rofi.mkdir(exist_ok=True)
+    for f in ("theme.rasi", "launcher.rasi", "menu.rasi"):
+        text = themes.recolor((DIR / "rofi" / f).read_text(encoding="utf-8"), th)
+        if f == "theme.rasi" and glass:
+            text += themes.glass_rofi(th)
+        (rofi / f).write_text(text, encoding="utf-8")
+    (GEN / "kitty-colors.conf").write_text(themes.kitty_conf(th))
+    (GEN / "hypr-theme.lua").write_text(themes.hypr_lua(th, glass))
+    (GEN / "greeter.css").write_text(themed_css(DIR / "greeter/style.css", th))
+    (GEN / "wall_bg").write_text(themes.roles(th)["wall_bg"] + "\n")
+
+
+def apply_theme(s):
+    """Live: restart the OSD, reload Hyprland (borders, blur) and kitty, tell GTK apps light or dark."""
+    th = themes.get(s["general"].get("theme"))
+    dark = themes.roles(th)["dark"]
+    sh("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", "prefer-dark" if dark else "prefer-light")
+    sh("pkill", "-USR1", "-x", "kitty")          # kitty re-reads its config (and our colours)
+    sh("hyprctl", "reload")
+    if hyprminimal_active():
+        sh(str(DIR / "bin" / "hyprminimal"), "respawn", "swayosd-server")
 
 
 # live reload of running components (only while hyprminimal is active)
@@ -624,6 +693,7 @@ def run_gui(start_page):
     .navigation-sidebar > row { border-radius: 4px; padding: 9px 12px; margin: 1px 6px; }
     .navigation-sidebar > row:selected { background: #7a88cf; color: #1f2335; }
     .navigation-sidebar > row:selected image { color: #1f2335; }
+    .navigation-sidebar > row:selected label { color: #1f2335; }
     .navigation-sidebar image { color: #7a88cf; }
     .boxed-list, .card, row.entry, .preferences row { border-radius: 4px; }
     .boxed-list { border: 1px solid #343a5c; }
@@ -643,6 +713,7 @@ def run_gui(start_page):
     .wall:hover { border-color: #7a88cf; }
     .recording { background: #d7729f; color: #1f2335; }
     .banner-off { background: #2c314a; }
+    .swatches { border-radius: 6px; border: 1px solid alpha(currentColor, 0.15); }
     """
 
     class Win(Adw.ApplicationWindow):
@@ -808,6 +879,10 @@ def run_gui(start_page):
         def changed(self, what):
             """Save + render now, reload the affected component shortly after (debounced)."""
             save_settings(self.s)
+            if what == "theme":
+                self.get_application().restyle(self.s)
+            if what == "bar":
+                GLib.timeout_add(600, lambda: self.get_application().panels.reload_zones() or False)
             try:
                 render(self.s)
             except Exception as e:      # keep the running shell on its last rendered files
@@ -822,6 +897,7 @@ def run_gui(start_page):
             def fire():
                 self._pending.pop(what, None)
                 fn = {"bar": reload_bar, "notifications": reload_notifications, "idle": reload_idle,
+                      "theme": lambda: (reload_bar(), reload_notifications(), apply_theme(self.s)),
                       "nightlight": lambda: apply_nightlight(self.s)}.get(what)
                 if fn:
                     threading.Thread(target=fn, daemon=True).start()
@@ -921,18 +997,24 @@ def run_gui(start_page):
         # ---- pages
         def page_general(self):
             p = Adw.PreferencesPage()
-            g = self.group(p, "Theme", "hyprminimal uses one theme, Tokyo Night Moon, everywhere.")
-            row = Adw.ActionRow(title="Tokyo Night Moon", subtitle="Bar, panels, notifications, OSD, launcher, lock screen")
-            sw = Gtk.Box(spacing=4, valign=Gtk.Align.CENTER)
-            for c in ("#7a88cf", "#d7729f", "#9cd58a", "#e6c384", "#f7768e", "#2c314a"):
-                da = Gtk.DrawingArea(content_width=22, content_height=22)
-                rgba = Gdk.RGBA()
-                rgba.parse(c)
-                da.set_draw_func(lambda _a, cr, w, h, col=rgba: (cr.set_source_rgba(col.red, col.green, col.blue, 1),
-                                                                 cr.rectangle(0, 0, w, h), cr.fill()))
-                sw.append(da)
-            row.add_suffix(sw)
-            g.add(row)
+            g = self.group(p, "Theme", "Bar, panels, notifications, OSD, launcher, terminal, lock screen "
+                                       "and window borders all follow it.")
+            first = None
+            cur = themes.get(self.s["general"].get("theme"))
+            for name in themes.ORDER:
+                row = Adw.ActionRow(title=themes.TEMPLATE[name]["label"], subtitle=themes.DESCRIPTION[name])
+                chk = Gtk.CheckButton(active=name == cur, valign=Gtk.Align.CENTER)
+                if first:
+                    chk.set_group(first)
+                first = first or chk
+                row.add_prefix(chk)
+                row.add_suffix(self._swatches(name))
+                row.set_activatable_widget(chk)
+                chk.connect("toggled", lambda c, n=name: c.get_active() and self._set_theme(n))
+                g.add(row)
+            gg = self.group(p, "Look")
+            self.switch(gg, "Liquid glass", "general", "glass", "theme",
+                        "Translucent, blurred panels with soft rounded edges. Off: solid surfaces")
             g2 = self.group(p, "Font")
             fr = Adw.ActionRow(title="Interface font", subtitle="Used by the bar, panels and lock screen")
             fb = Gtk.FontDialogButton(dialog=Gtk.FontDialog(), level=Gtk.FontLevel.FAMILY, valign=Gtk.Align.CENTER)
@@ -948,6 +1030,23 @@ def run_gui(start_page):
             fr.add_suffix(fb)
             g2.add(fr)
             return p
+
+        def _swatches(self, name):
+            box = Gtk.Box(spacing=0, valign=Gtk.Align.CENTER, css_classes=["swatches"], overflow=Gtk.Overflow.HIDDEN)
+            for c in themes.swatches(name):
+                da = Gtk.DrawingArea(content_width=20, content_height=22)
+                rgba = Gdk.RGBA()
+                rgba.parse(c)
+                da.set_draw_func(lambda _a, cr, w, h, col=rgba: (cr.set_source_rgba(col.red, col.green, col.blue, 1),
+                                                                 cr.rectangle(0, 0, w, h), cr.fill()))
+                box.append(da)
+            return box
+
+        def _set_theme(self, name):
+            if self.s["general"].get("theme") == name:
+                return
+            self.s["general"]["theme"] = name
+            self.changed("theme")
 
         def page_bar(self):
             p = Adw.PreferencesPage()
@@ -1481,10 +1580,8 @@ def run_gui(start_page):
 
         def do_startup(self):
             Adw.Application.do_startup(self)
-            Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
-            prov = Gtk.CssProvider()
-            prov.load_from_string(CSS.replace("%FONT%", load_settings()["general"]["font"]))
-            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov,
+            self.css = Gtk.CssProvider()
+            Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.css,
                                                       Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
             esc = Gio.SimpleAction.new("close", None)
             esc.connect("activate", lambda *_: self.win and self.win.close())
@@ -1495,9 +1592,9 @@ def run_gui(start_page):
             self.add_action(show)
             self._idle_quit = None
             self.preloaded = False
-            sys.path.insert(0, str(Path(__file__).resolve().parent))   # -I drops the script dir
             import panels
             self.panels = panels.PanelManager(self)
+            self.restyle()
             pa = Gio.SimpleAction.new("panel", GLib.VariantType.new("s"))
             pa.connect("activate", lambda _a, v: self._safe_panel(v.get_string()))
             self.add_action(pa)
@@ -1512,6 +1609,17 @@ def run_gui(start_page):
             quit_a = Gio.SimpleAction.new("quit", None)
             quit_a.connect("activate", lambda *_: self.quit())
             self.add_action(quit_a)
+
+        def restyle(self, s=None):
+            """Theme the Settings window and the bar popups (live, no restart)."""
+            g = (s or load_settings())["general"]
+            th, glass = themes.get(g.get("theme")), bool(g.get("glass", True))
+            dark = themes.roles(th)["dark"]
+            Adw.StyleManager.get_default().set_color_scheme(
+                Adw.ColorScheme.FORCE_DARK if dark else Adw.ColorScheme.FORCE_LIGHT)
+            self.css.load_from_string(themes.recolor(CSS, th).replace("%FONT%", g["font"])
+                                      + (themes.glass_settings(th) if glass else ""))
+            self.panels.restyle(th, glass)
 
         def preload(self):
             """Started hidden by `hyprminimal start`: build the window and the keybinds page now,

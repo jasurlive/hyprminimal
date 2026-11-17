@@ -56,15 +56,8 @@
   "clock": {
     "cursor": true,
     "format": "{:%H:%M}",
-    "tooltip-format": "<tt>{calendar}</tt>",
-    "calendar": {
-      "mode": "month",
-      "format": {
-        "months":   "<span color='#c0caf5'><b>{}</b></span>",
-        "weekdays": "<span color='#7a88cf'><b>{}</b></span>",
-        "today":    "<span color='#d7729f'><b><u>{}</u></b></span>"
-      }
-    },
+    // no tooltip: hovering the date/clock shows the calendar popup instead (settings/panels.py)
+    "tooltip": false,
     "on-click": "hyprminimal-msg panel calendar",
     "on-click-right": "hyprminimal-msg control-center"
   },
@@ -72,6 +65,7 @@
   "custom/media": {
     "cursor": true,
     "exec": "$HYPRMINIMAL_DIR/scripts/media.sh",
+    "tooltip": false,
     "restart-interval": 2,
     "return-type": "json",
     "escape": false,

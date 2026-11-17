@@ -22,7 +22,7 @@ emit() {  # status title artist
   printf '{"text":"%s","class":"%s","tooltip":"%s"}\n' "$(json "$shown")" "$cls" "$(json "$tip")"
 }
 # the playing icon takes the theme's accent colour (waybar CSS can't colour part of a label)
-ACCENT=$(sed -n 's/^@define-color primary *\(#[0-9a-fA-F]\{6\}\);.*/\1/p' "$HYPRMINIMAL_DIR/colors/palette.css" 2>/dev/null)
+ACCENT=$(sed -n 's/^@define-color primary *\(#[0-9a-fA-F]\{6\}\);.*/\1/p' "$HYPRMINIMAL_DIR/.generated/palette.css" "$HYPRMINIMAL_DIR/colors/palette.css" 2>/dev/null | head -1)
 coproc PC { exec playerctl --follow metadata --format '{{status}}	{{title}}	{{artist}}' 2>/dev/null; }
 trap 'kill "$PC_PID" 2>/dev/null' EXIT
 trap 'exit 0' TERM HUP INT PIPE

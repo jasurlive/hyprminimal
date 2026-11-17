@@ -13,6 +13,9 @@ case $cmd in
   panel-close)    # close the open bar popup (sent by Hyprland on a click outside it, see hypr/layerrules.lua)
                   exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
                     --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1 ;;
+  settings-close) # hide the Settings window (Hyprland, on a click outside it: hypr/layerrules.lua)
+                  exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+                    --method org.gtk.Actions.Activate close "[]" "{}" >/dev/null 2>&1 ;;
   catch)          # $1 = process name of a popup that should close on a click outside it ("" = closed)
                   [[ ${1:-} =~ ^[a-z-]*$ ]] || exit 2
                   exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \

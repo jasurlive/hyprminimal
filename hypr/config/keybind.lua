@@ -1,6 +1,7 @@
 local scrPath = (os.getenv("HOME") or "") .. "/.config/hypr/Scripts"
 local mainMod = "SUPER"
 local TERMINAL = "kitty"
+local EDITOR = "code"
 local EXPLORER = "thunar"
 local BROWSER = "firefox"
 local WORKSPACE = scrPath .. "/workspace.sh"
@@ -10,6 +11,7 @@ local SHELLMSG = (os.getenv("HOME") or "") .. "/.local/share/hyprminimal/bin/hyp
 local KEY = {
 	TERMINAL = ("%s + SPACE"):format(mainMod),
 	TERMINAL_ALT = ("%s + RETURN"):format(mainMod),
+	EDITOR = ("%s + C"):format(mainMod),
 	EXPLORER = ("%s + E"):format(mainMod),
 	BROWSER = ("%s + B"):format(mainMod),
 	WORKSPACE = ("%s + TAB"):format(mainMod),
@@ -60,6 +62,7 @@ local KEY = {
 -- 1. Applications
 hl.bind(KEY.TERMINAL, hl.dsp.exec_cmd(TERMINAL), { description = "Terminal" })
 hl.bind(KEY.TERMINAL_ALT, hl.dsp.exec_cmd(TERMINAL), { description = "Terminal" })
+hl.bind(KEY.EDITOR, hl.dsp.exec_cmd(EDITOR), { description = "Code editor" })
 hl.bind(KEY.EXPLORER, hl.dsp.exec_cmd(EXPLORER), { description = "File manager" })
 hl.bind(KEY.BROWSER, hl.dsp.exec_cmd(BROWSER), { description = "Browser" })
 
