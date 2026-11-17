@@ -13,11 +13,11 @@ element  { padding: 9px 12px; spacing: 0; }
 element normal.urgent, element alternate.urgent { text-color: #cf8f9a; }
 element selected.normal {
     background-color: #7a88cf33; text-color: @on-surface-v;
-    border: 0 0 0 2px; border-color: @primary;
+    border: 0;
 }
 element selected.urgent {
     background-color: #cf8f9a33; text-color: #cf8f9a;
-    border: 0 0 0 2px; border-color: #cf8f9a;
+    border: 0;
 }
 element-icon { size: 0; }
 element-text { font: "Noto Sans 12"; vertical-align: 0.5; }

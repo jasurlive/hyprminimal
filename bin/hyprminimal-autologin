@@ -13,9 +13,12 @@ case ${1:-status} in
     sed "s/@USER@/$user/g" "$DIR/hypr/greetd/config.toml" > "$CONF.new" && chmod 644 "$CONF.new" && mv "$CONF.new" "$CONF"
     echo "autologin on (next boot). Undo: sudo $0 disable" ;;
   disable)
-    [[ -f $BAK ]] || { echo "no backup at $BAK, nothing to restore"; exit 1; }
-    cp -p "$BAK" "$CONF" && rm -f "$BAK"
-    echo "autologin off, greeter restored (next boot)" ;;
+    [[ $EUID == 0 ]] || { echo "run with sudo"; exit 1; }
+    # don't restore $BAK: it may be another setup's config (its own autologin, a greeter that's gone).
+    # Write the plain hyprminimal greeter config instead.
+    "$DIR/bin/hyprminimal-greeter" install
+    rm -f "$BAK"
+    echo "autologin off, login screen on (next boot)" ;;
   status)
     grep -q '^\[initial_session\]' "$CONF" && echo "autologin: on" || echo "autologin: off" ;;
   *) echo "usage: $0 enable|disable|status"; exit 2 ;;

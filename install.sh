@@ -161,6 +161,10 @@ for v in 3.0 4.0; do
   f="$HOME/.config/gtk-$v/settings.ini"
   [[ -f $f ]] || printf '[Settings]\ngtk-application-prefer-dark-theme=1\ngtk-icon-theme-name=Papirus-Dark\ngtk-cursor-theme-name=Adwaita\n' > "$f"
 done
+# Qt apps: dark palette through qt6ct (startup.lua sets QT_QPA_PLATFORMTHEME=qt6ct)
+mkdir -p "$HOME/.config/qt6ct"
+f="$HOME/.config/qt6ct/qt6ct.conf"
+grep -qs '^\[Appearance\]' "$f" || { printf '[Appearance]\ncolor_scheme_path=/usr/share/qt6ct/colors/darker.conf\ncustom_palette=true\nicon_theme=Papirus-Dark\nstandard_dialogs=default\nstyle=Fusion\n\n'; cat "$f" 2>/dev/null; } > "$f.new" && mv "$f.new" "$f"
 
 # ------------------------------------------------------------------ settings render
 step "Rendering hyprminimal settings"
@@ -192,6 +196,17 @@ if (( GREETER )); then
     sudo "$DIR/bin/hyprminimal-autologin" enable "$USER"
   fi
   sudo systemctl enable greetd.service
+  # a getty autologin on tty1 (e.g. agetty --skip-login / --autologin) fights greetd for the same VT
+  for d in /etc/systemd/system/getty@tty1.service.d/*.conf; do
+    [[ -f $d ]] && grep -qE -- '--(skip-login|autologin)' "$d" \
+      && warn "$d logs in on tty1 without the login screen; remove it: sudo rm $d && sudo systemctl daemon-reload"
+  done
+  # check the result: the greeter must be the default session, and no autologin unless asked for
+  conf=/etc/greetd/config.toml
+  grep -q /usr/local/share/hyprminimal-greeter "$conf" || warn "$conf does not start the hyprminimal greeter"
+  if (( ! AUTOLOGIN )) && grep -q '^\[initial_session\]' "$conf"; then
+    warn "$conf still has autologin ([initial_session]); the login screen will be skipped at boot"
+  fi
 fi
 
 # ------------------------------------------------------------------ done

@@ -61,10 +61,13 @@ def main():
     rows = [row(i + 1, lst[i], width, tag if n < len(recent) else "") for n, i in enumerate(order)]
     extra = ["-a", f"0-{len(recent) - 1}"] if recent else []
 
+    def rasi(name):   # themed copy from Settings (.generated/rofi), else the repo's own
+        gen = DIR / ".generated/rofi" / f"{name}.rasi"
+        return gen if gen.exists() else DIR / "rofi" / f"{name}.rasi"
     subprocess.run([str(DIR / "bin/hyprminimal-msg"), "catch", "rofi"])   # click outside closes it
     res = subprocess.run(
         ["rofi", "-dmenu", "-i", "-markup-rows", "-show-icons", "-no-custom",
-         "-format", "i\tf", "-p", "\U000f0349", "-theme", str(DIR / "rofi/launcher.rasi"), *extra],
+         "-format", "i\tf", "-p", "\U000f0349", "-theme", str(rasi("launcher")), *extra],
         input="\n".join(rows), capture_output=True, text=True)
     subprocess.run([str(DIR / "bin/hyprminimal-msg"), "catch", ""])
     if res.returncode != 0 or not res.stdout.strip("\n"):

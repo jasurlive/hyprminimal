@@ -32,11 +32,40 @@ local function open_panel()
         if l.namespace == "hyprminimal-panel" and l.mapped ~= false then return l end
     end
 end
+local CLOSE_SETTINGS = HM .. "/bin/hyprminimal-msg settings-close"
+local function win_inside(w, p)
+    return p.x >= w.at.x and p.x < w.at.x + w.size.x and p.y >= w.at.y and p.y < w.at.y + w.size.y
+end
+-- the Settings window, when it's showing on the active workspace
+local function open_settings()
+    local ws = hl.get_active_workspace()
+    for _, w in ipairs(hl.get_windows() or {}) do
+        if w.class == "dev.hyprminimal.Settings" and w.mapped ~= false and not w.hidden
+            and (not ws or not w.workspace or w.workspace.id == ws.id) then return w end
+    end
+end
+-- Settings closes like a popup on a click outside it. Not on clicks in its own dialogs (file and
+-- font pickers are separate windows of the same process), the bar, or hyprminimal's popups.
+local SHELL_LAYERS = { waybar = true, ["hyprminimal-panel"] = true, rofi = true,
+                       ["swaync-control-center"] = true, ["swaync-notification-window"] = true }
+local function settings_click(p)
+    local s = open_settings()
+    if not s or win_inside(s, p) then return end
+    for _, w in ipairs(hl.get_windows()) do
+        if w.pid == s.pid and w.mapped ~= false and not w.hidden and win_inside(w, p) then return end
+    end
+    for _, l in ipairs(hl.get_layers()) do
+        if SHELL_LAYERS[l.namespace] and l.mapped ~= false and inside(l, p) then return end
+    end
+    hl.exec_cmd(CLOSE_SETTINGS)
+end
 local function close_on_click()
+    local p = hl.get_cursor_pos()
+    if not p then return end
+    settings_click(p)
     local panel = open_panel()
     if not panel then return end                        -- the usual case: costs one layer lookup
-    local p = hl.get_cursor_pos()
-    if not p or inside(panel, p) then return end
+    if inside(panel, p) then return end
     for _, l in ipairs(hl.get_layers()) do
         if l.namespace == "waybar" and inside(l, p) then return end
     end
@@ -49,6 +78,12 @@ end
 -- settings window: float and centre it, like Noctalia's settings panel
 -- launcher "rm NAME": uninstall terminal (scripts/remove-app.sh)
 hl.window_rule({ match = { class = "^hyprminimal-remove$" }, float = true, size = "820 520", center = 1 })
-hl.window_rule({ match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, size = "1120 760", center = 1, opaque = true })
+-- theme from Settings -> General (window border colours, glass blur); returns true when glass is on
+local okt, glass = pcall(dofile, HM .. "/.generated/hypr-theme.lua")
+glass = okt and glass == true
+-- glass: Settings is translucent and blurred, so it must not be forced opaque
+local settings_rule = { match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, size = "1120 760", center = 1 }
+if not glass then settings_rule.opaque = true end   -- (a rule with opaque = false still counts as set)
+hl.window_rule(settings_rule)
 
 return true

@@ -4,7 +4,7 @@ How to run hyprminimal, change every setting, and recover when something breaks.
 For what hyprminimal is and how it's built, see [README.md](README.md).
 
 - [1. Everyday use](#1-everyday-use)
-- [2. Settings, all of them](#2-settings-all-of-them)
+- [2. Settings, all of them](#2-settings-all-of-them) (and [customizing the look](#customizing-the-look))
 - [3. Keybinds](#3-keybinds)
 - [4. Where things live](#4-where-things-live)
 - [5. Crashes and problems](#5-crashes-and-problems)
@@ -43,6 +43,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 |---|---|
 | Super+R | Launcher. Apps are numbered and the most recently used come first. Type `rm NAME` (or `rm NUMBER`) + Enter to uninstall that app: a terminal shows what will go and asks first, then runs `pacman -Rns` (app, unneeded dependencies, its /etc config), `pacman -Sc` (cache) and offers to delete its folders in ~/.config, ~/.local/share, ~/.cache. Flatpaks use `flatpak uninstall --delete-data`. |
 | Super+S | Control center: media, Wi-Fi, Bluetooth, Caffeine, Night Light, DND, System, Session |
+| Super+C | VS Code (`code`) |
 | Super+I | Settings |
 | Super+H | Keybinds editor |
 | Super+L | Lock screen |
@@ -52,7 +53,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 
 | Click | Opens |
 |---|---|
-| Clock or date | Calendar |
+| Clock or date | Calendar with the time, centred under the clock. Hovering shows it, moving away hides it; a click pins it open (click again, click outside or Esc to close). Right click: control center. |
 | Battery | Power mode |
 | ↓ speed | Network |
 | Media capsule | Player |
@@ -91,7 +92,8 @@ Any key that is missing from the file falls back to its default.
 | Setting | Key | Default | Notes |
 |---|---|---|---|
 | Interface font | `general.font` | `Noto Sans` | Used by the bar, panels, notifications and lock screen. |
-| Theme | — | Tokyo Night Moon | This is the only theme. The colors are in `colors/palette.css`. |
+| Theme | General | Charcoal | Charcoal (from the django-react template) or Tokyo Night. Bar, popups, notifications, OSD, launcher, kitty, lock screen, login screen, Hyprland borders and Settings follow it. See [Customizing the look](#customizing-the-look). |
+| Liquid glass | General | On | Rounded panels with a bright hairline edge, soft shadows and Hyprland blur behind them. Off: solid, square surfaces. |
 
 ### Bar
 | Setting | Key | Range / values | Default |
@@ -194,6 +196,57 @@ See [section 3](#3-keybinds).
 ### About
 Shows the version of each package and the paths of `settings.json` and `keybind.lua`.
 
+### Customizing the look
+
+**Pick a theme:** Settings → General → Theme. It applies at once: bar, notifications, control center, OSD,
+launcher and session menu, bar popups, Settings, kitty, the lock screen and Hyprland's window borders.
+The login screen picks it up the next time you run `sudo hyprminimal-greeter install`.
+
+**How it works.** The style files in the repo (`waybar/style.css`, `swaync/style.css`, `swayosd/style.css`,
+`rofi/*.rasi`, `hyprlock/hyprlock.conf`, `greeter/style.css`, the CSS inside `settings/*.py`) are written in
+Tokyo Night colours. `settings/themes.py` gives every one of those colours a *role* (`primary`, `surface`,
+`outline`, `on_surface`, …) and, when you pick a theme, writes copies with each colour swapped for the theme's
+colour in the same role into `.generated/`. So:
+
+- **Change the layout or shape of something** (sizes, padding, corners): edit its repo file, then
+  `hyprminimal restart`. Keep using the Tokyo Night colours from `colors/palette.css` in it, and the edit
+  works in every theme.
+- **Change a theme's colours**: edit its entry in `TEMPLATE` in `settings/themes.py`: `bg`, `bg_elev`,
+  `surface`, `text`, `text_strong`, `muted`, `accent`, `accent_hover`, `danger`. The other roles are mixed
+  from these in `roles()`. Then `hyprminimal restart`.
+- **Add a theme**: add an entry to `TEMPLATE`, its name to `ORDER` and a line to `DESCRIPTION` in
+  `settings/themes.py`. It shows up in Settings → General.
+- **Terminal colours**: kitty includes `.generated/kitty-colors.conf` (from `kitty_conf()` in `themes.py`,
+  ANSI colours in `ANSI_DARK` / `ANSI_TOKYO`). Running kittys reload on a theme change.
+- **Window borders and blur**: `.generated/hypr-theme.lua` (from `hypr_lua()`), loaded by `hypr/layerrules.lua`
+  after your own `~/.config/hypr/theme.lua`, so it wins. Change the blur strength or style (Hyprland 0.57 has
+  `variant`s such as `acrylic` and `frost`) in `hypr_lua()`.
+- **Liquid glass look**: the `glass_*()` functions in `themes.py`, one per part (bar/notifications,
+  OSD, bar popups, Settings, launcher). Each sets the transparency (`alpha(@surface, 0.90)`, `0.92`, …),
+  the hairline edge (`glass_edge()`) and the corner radii.
+
+**Calendar hover area.** Waybar can't react to hovering, so an invisible strip from the Settings process
+sits over the date and clock (`HoverZone` in `settings/panels.py`). Its size comes from
+`.generated/clock_zone.json`, recalculated whenever the bar's text, font or widgets change. The hover
+delay (350 ms) is in `PanelManager.hover_release()`.
+
+**Other apps.** GTK apps follow `gsettings` (`color-scheme prefer-dark`, set at login by `startup.lua` and on
+every theme change) and `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
+(`QT_QPA_PLATFORMTHEME=qt6ct` in `startup.lua`, dark palette in `~/.config/qt6ct/qt6ct.conf`; change it with
+the `qt6ct` app). Electron apps (VS Code, Discord, …) follow the dark setting through the desktop portal; VS
+Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu bar stays light on Wayland.
+
+| Generated file | Used by |
+|---|---|
+| `.generated/theme` | Current theme, glass on/off |
+| `.generated/palette.css` | Colour roles (GTK `@define-color`), read by `scripts/media.sh` |
+| `.generated/waybar.css`, `swaync.css`, `swayosd.css` | Bar, notifications/control center, OSD |
+| `.generated/rofi/*.rasi` | Launcher and session menu |
+| `.generated/hyprlock.conf`, `greeter.css` | Lock screen, login screen |
+| `.generated/kitty-colors.conf` | kitty |
+| `.generated/hypr-theme.lua` | Hyprland borders and blur |
+| `.generated/clock_zone.json` | Calendar hover area |
+
 ---
 
 ## 3. Keybinds
@@ -235,7 +288,8 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 |---|---|
 | Your settings | `settings.json` |
 | Generated configs (never edit these) | `.generated/`, rebuilt from `settings.json` |
-| Hand-editable base configs | `waybar/`, `swaync/`, `swayosd/`, `rofi/`, `hyprlock/`, `hypridle/`, `colors/` |
+| Hand-editable base configs | `waybar/`, `swaync/`, `swayosd/`, `rofi/`, `hyprlock/`, `hypridle/`, `colors/` (written in Tokyo Night colours; themed copies go to `.generated/`) |
+| Themes | `settings/themes.py` |
 | Logs | `$XDG_RUNTIME_DIR/hyprminimal/*.log` (usually `/run/user/1000/hyprminimal/`). The previous run of each log is kept as `NAME.log.1`. |
 | "hyprminimal is active" flag | `$XDG_RUNTIME_DIR/hyprminimal/active` |
 | Backups of Hyprland files | `~/.config/hypr/.pre-hyprminimal-backup/` |

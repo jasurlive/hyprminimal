@@ -44,3 +44,4 @@ blueman                   # Bluetooth manager for pairing and managing Bluetooth
 noto-fonts                # General-purpose fonts with broad Unicode coverage.
 ttf-nerd-fonts-symbols    # Nerd Font symbols and icons for Waybar and other UI components.
 papirus-icon-theme        # App icons in the launcher.
+qt6ct                     # Dark theme for Qt apps (QT_QPA_PLATFORMTHEME=qt6ct).
