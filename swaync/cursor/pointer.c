@@ -2,7 +2,7 @@
 //  - GTK4 CSS has no "cursor" property, so every clickable widget gets a hand pointer when mapped
 //  - buttons get hover text from $HYPRMINIMAL_SWAYNC_TOOLTIPS (lines: label-substring<TAB>tooltip)
 //  - control center: keys 1-9 flip the toggle tiles in reading order, each tile shows its number;
-//    K plays/pauses the current player
+//    K plays/pauses the current player, C clears all notifications ("C" keycap after "Clear all")
 //  - control center: the "N notifications" header follows swaync's live count (D-Bus SubscribeV2 signal)
 //  - control center: live tile labels without a config reload. scripts/control-center.sh writes
 //    $XDG_RUNTIME_DIR/hyprminimal/cc/labels (lines: label-substring<TAB>new label, \n escaped);
@@ -43,6 +43,7 @@ static void load_tips(void) {
 static GtkLabel *button_label(GtkWidget *b) {
   GtkWidget *c = gtk_button_get_child(GTK_BUTTON(b));
   if (c && GTK_IS_OVERLAY(c)) c = gtk_overlay_get_child(GTK_OVERLAY(c));
+  else if (c && GTK_IS_BOX(c)) c = gtk_widget_get_first_child(c);   // [label][keycap], see key_after
   return c && GTK_IS_LABEL(c) ? GTK_LABEL(c) : NULL;
 }
 
@@ -111,6 +112,23 @@ static void badge(GtkWidget *b, guint n) {
   gtk_overlay_add_overlay(GTK_OVERLAY(ov), k);
 }
 
+// a keycap right after a text button's label: [ Clear all (C) ], for buttons too small for badge()'s overlay
+static void key_after(GtkWidget *b, const char *key) {
+  GtkWidget *c = gtk_button_get_child(GTK_BUTTON(b));
+  if (!c || !GTK_IS_LABEL(c)) return;   // already has one (or not a text button)
+  g_object_ref(c);
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
+  gtk_button_set_child(GTK_BUTTON(b), box);
+  gtk_box_append(GTK_BOX(box), c);
+  g_object_unref(c);
+  GtkWidget *k = gtk_label_new(key);
+  gtk_widget_add_css_class(k, "key-hint");
+  gtk_widget_set_valign(k, GTK_ALIGN_CENTER);
+  gtk_widget_set_can_target(k, FALSE);
+  gtk_box_append(GTK_BOX(box), k);
+}
+
 // labels file, badges, centred two-line labels, list height: cheap, run on show and on file changes
 static void cc_apply(void) {
   if (!cc) return;
@@ -127,6 +145,7 @@ static void cc_apply(void) {
     GtkLabel *l = button_label(buttons->pdata[i]);
     if (!l) continue;
     gtk_label_set_justify(l, GTK_JUSTIFY_CENTER);
+    if (!strcmp(gtk_label_get_text(l), "Clear all")) key_after(buttons->pdata[i], "C");
     for (char **ln = lines; ln && *ln; ln++) {
       char *tab = strchr(*ln, '\t');
       if (!tab || tab == *ln) continue;
@@ -181,6 +200,10 @@ static gboolean on_key(GtkEventControllerKey *k, guint keyval, guint code, GdkMo
   if (focus && GTK_IS_EDITABLE(focus)) return FALSE;   // typing an inline reply
   if (keyval == GDK_KEY_k || keyval == GDK_KEY_K) {   // K: play/pause, like YouTube; the same player as the bar
     g_spawn_command_line_async("playerctl play-pause", NULL);
+    return TRUE;
+  }
+  if (keyval == GDK_KEY_c || keyval == GDK_KEY_C) {   // C: Clear all, like the button in the header
+    g_spawn_command_line_async("swaync-client -C -sw", NULL);
     return TRUE;
   }
   guint n = keyval >= GDK_KEY_1 && keyval <= GDK_KEY_9 ? keyval - GDK_KEY_1

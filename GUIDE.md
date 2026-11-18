@@ -40,7 +40,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Key | Action |
 |---|---|
 | Super+R | Launcher. Apps are numbered and the most recently used come first. Type `rm NAME` (or `rm NUMBER`) + Enter to uninstall that app: a terminal shows what will go and asks first, then runs `pacman -Rns` (app, unneeded dependencies, its /etc config), `pacman -Sc` (cache) and offers to delete its folders in ~/.config, ~/.local/share, ~/.cache. Flatpaks use `flatpak uninstall --delete-data`. |
-| Super+S | Control center: Wi-Fi, System, toggles (keys 1–5), Lock / Reboot / Shut Down, media (K: play/pause), notifications |
+| Super+S | Control center: Wi-Fi, System, toggles (keys 1–5), Lock / Reboot / Shut Down, media (K: play/pause), notifications (C: clear all) |
 | Super+C | VS Code (`code`) |
 | Super+I | Settings |
 | Super+H | Keybinds editor |

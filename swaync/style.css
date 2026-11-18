@@ -138,6 +138,10 @@ button.toggle:checked .key-hint { color: alpha(@on_primary, 0.8); border-color: 
 .widget-buttons-grid.notif flowboxchild:nth-child(1) > button label { font-weight: 700; }
 .widget-buttons-grid.notif flowboxchild:nth-child(2) > button { min-width: 64px; border: 1px solid alpha(@outline, 0.7); }
 .widget-buttons-grid.notif flowboxchild > button:hover { background: alpha(@primary, 0.22); }
+/* "C" keycap after "Clear all": same size as the other keycaps, not the row's 13px labels */
+.widget-buttons-grid.notif flowboxchild > button label.key-hint {
+  font-size: 10px; font-weight: 700; color: alpha(@on_surface_var, 0.65); padding: 1px 4px;
+}
 
 /* notifications listed in the control center: one flat card each, no extra group box */
 .control-center .notification-group, .control-center .notification-group.collapsed,

@@ -157,6 +157,17 @@ for v in 3.0 4.0; do
   f="$HOME/.config/gtk-$v/settings.ini"
   [[ -f $f ]] || printf '[Settings]\ngtk-application-prefer-dark-theme=1\ngtk-icon-theme-name=Papirus-Dark\ngtk-cursor-theme-name=Adwaita\n' > "$f"
 done
+# Firefox: its built-in GTK file dialog ignores the dark theme; use the portal's (xdg-desktop-portal-gtk) instead
+for d in "$HOME"/.mozilla/firefox/*.default* "$HOME"/.config/mozilla/firefox/*.default*; do
+  [[ -d $d ]] || continue
+  grep -qs 'widget.use-xdg-desktop-portal.file-picker' "$d/user.js" ||
+    echo 'user_pref("widget.use-xdg-desktop-portal.file-picker", 1);' >> "$d/user.js"
+done
+# profiles made later (first start after install) get it from a system policy, unless one already exists
+pol=/etc/firefox/policies/policies.json
+[[ -e $pol ]] || { sudo mkdir -p "${pol%/*}" && printf '%s\n' \
+  '{ "policies": { "Preferences": { "widget.use-xdg-desktop-portal.file-picker": { "Value": 1, "Status": "default" } } } }' \
+  | sudo tee "$pol" >/dev/null; } || warn "could not write $pol"
 # Qt apps: dark palette through qt6ct (startup.lua sets QT_QPA_PLATFORMTHEME=qt6ct)
 mkdir -p "$HOME/.config/qt6ct"
 f="$HOME/.config/qt6ct/qt6ct.conf"
