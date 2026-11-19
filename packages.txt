@@ -35,6 +35,9 @@ kitty                     # Terminal (launcher "rm NAME" runs in it).
 
 # Network and Bluetooth
 networkmanager            # nmcli: Wi-Fi panel and control center.
+dnsmasq                   # DHCP/DNS for the Wi-Fi hotspot (NetworkManager shared mode).
+iw                        # Hotspot: second (access-point) interface so Wi-Fi stays connected.
+hostapd                   # Hotspot next to the Wi-Fi connection (scripts/hotspot-iface).
 network-manager-applet    # System tray interface for NetworkManager and Wi-Fi connections.
 bluez-utils               # bluetoothctl: Bluetooth toggle.
 blueman                   # Bluetooth manager for pairing and managing Bluetooth devices.

@@ -85,6 +85,11 @@ window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0
 .panel button.scan-btn:disabled { color: #7a88cf; opacity: 1; font-family: "Noto Sans"; font-size: 16px; font-weight: 800; }
 .panel .net-name { font-size: 15px; font-weight: 600; }
 .panel .lock { font-size: 14px; }
+.panel .card.hotspot { padding: 10px 12px 10px 14px; }
+.panel .card.hotspot.on { background: rgba(122, 136, 207, 0.30); border-color: #7a88cf; }
+.panel .hs-icon { font-family: "Symbols Nerd Font"; font-size: 22px; color: #a9b1d6; min-width: 26px; }
+.panel .card.hotspot.on .hs-icon { color: #7a88cf; }
+.panel .hs-error { color: #d7729f; }
 .panel .wifi-pw { margin-top: 8px; background: #2c314a; border: 1px solid #4b517a; border-radius: 8px; padding: 4px 10px; }
 """
 
@@ -436,6 +441,22 @@ class NetworkPanel(Panel):
         self.pw_card.append(self.copy)
         box.append(self.pw_card)
 
+        # hotspot: share this connection over Wi-Fi (next to the Wi-Fi network when the adapter allows it)
+        self.hs_card = Gtk.Box(spacing=12, css_classes=["card", "hotspot"], visible=False)
+        self.hs_card.append(label("\U000f0003", "hs-icon", valign=Gtk.Align.CENTER))       # access point
+        hcol = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True, valign=Gtk.Align.CENTER)
+        hcol.append(label("Hotspot", "net-name"))
+        self.hs_sub = label("", "muted caption", ellipsize=Pango.EllipsizeMode.END)
+        hcol.append(self.hs_sub)
+        self.hs_card.append(hcol)
+        self.hs_switch = Gtk.Switch(valign=Gtk.Align.CENTER, tooltip_text="Share this computer's internet over Wi-Fi")
+        self.hs_switch.connect("state-set", self._toggle_hotspot)
+        self.hs_card.append(self.hs_switch)
+        box.append(self.hs_card)
+        self._hs_sync = False
+        self._hs_busy = False
+        self._hs_ticks = 0
+
         grid, self.v = kv_grid([("IP address", "ip"), ("Gateway", "gw")])
         box.append(grid)
 
@@ -477,10 +498,68 @@ class NetworkPanel(Panel):
            lambda _r: GLib.timeout_add(1500, lambda: (self._info(), False)[1]))
         return False
 
+    # --- hotspot
+    def _hs_info(self):
+        def work():
+            import network_page as npg
+            d, _devs, _conns = npg.base_state()
+            hs = d["hotspot"]
+            return {"supported": bool(d["wdev"] and d["ap"]), "on": bool(hs and hs["active"]),
+                    "ssid": hs and (hs.get("ssid") or hs["name"]), "clients": len(hs.get("clients", [])) if hs else 0,
+                    "together": d["concurrent"], "station": bool(d["active"])}
+
+        def done(h):
+            if not h or self._hs_busy:
+                return
+            self.hs_card.set_visible(h["supported"])
+            self._hs_sync = True
+            self.hs_switch.set_active(h["on"])
+            self._hs_sync = False
+            (self.hs_card.add_css_class if h["on"] else self.hs_card.remove_css_class)("on")
+            self.hs_sub.remove_css_class("hs-error")
+            if h["on"]:
+                n = h["clients"]
+                self.hs_sub.set_label(f"“{h['ssid']}” · " + (f"{n} device{'s' if n != 1 else ''}" if n else "no devices yet"))
+            elif h["station"]:
+                self.hs_sub.set_label("Off · shares this Wi-Fi too" if h["together"] else "Off · Wi-Fi disconnects while on")
+            else:
+                self.hs_sub.set_label("Off")
+        bg(work, done, self, "hotspot")
+
+    def _toggle_hotspot(self, _sw, on):
+        if self._hs_sync or self._hs_busy:
+            return False
+        self._hs_busy = True
+        self.hs_switch.set_sensitive(False)
+        self.hs_sub.remove_css_class("hs-error")
+        self.hs_sub.set_label("Starting…" if on else "Stopping…")
+
+        def work():
+            import network_page as npg
+            return npg.hotspot_set(on)
+
+        def done(res):
+            self._hs_busy = False
+            self.hs_switch.set_sensitive(True)
+            if res and res[0]:
+                self._hs_info()
+                GLib.timeout_add(1500, lambda: (self._info(), False)[1])     # Wi-Fi may have changed too
+                return
+            import network_page as npg
+            self._hs_sync = True
+            self.hs_switch.set_active(not on)
+            self._hs_sync = False
+            self.hs_sub.add_css_class("hs-error")
+            self.hs_sub.set_label(f"Failed: {npg.err_text(res[2]) if res else 'unknown error'}")
+            self.hs_sub.set_tooltip_text(res[2] if res else None)
+        bg(work, done)
+        return False
+
     def opened(self):
         self._last = None
         self._shown = False
         self._info()
+        self._hs_info()
         super().opened()
         GLib.timeout_add(400, lambda: (self.refresh(), False)[1])   # first speed after 0.4 s
 
@@ -578,6 +657,9 @@ class NetworkPanel(Panel):
             self.sub.set_label(extra or "Wi-Fi")
 
     def refresh(self):
+        self._hs_ticks += 1
+        if self._hs_ticks % 5 == 0:             # connected devices come and go
+            self._hs_info()
         if not self._dev:
             return
         if getattr(self, "_type", None) == "wifi":

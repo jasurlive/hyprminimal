@@ -1671,8 +1671,25 @@ def run_gui(start_page):
                 self._idle_quit = None
             self.win.show_page(page)
             self.win.update_error_banner()
+            if self.win.get_visible():
+                self._bring_here()
             self.win.present()
             GLib.timeout_add(150, self._wake_pointer)
+
+        @staticmethod
+        def _bring_here():
+            """Already open on another workspace: Hyprland ignores present() there, so move the window
+            to the workspace being looked at (silently, the view stays put) before focusing it."""
+            try:
+                ws = json.loads(sh("hyprctl", "activeworkspace", "-j").stdout)["id"]
+                me = next((c for c in json.loads(sh("hyprctl", "clients", "-j").stdout)
+                           if c.get("pid") == os.getpid() and c.get("class") == "dev.hyprminimal.Settings"), None)
+            except (ValueError, KeyError, TypeError, OSError):
+                return
+            if me and me["workspace"]["id"] != ws:
+                sh("hyprctl", "dispatch",
+                   f'hl.dsp.window.move({{ workspace = {ws}, follow = false, window = "address:{me["address"]}" }})')
+                sh("hyprctl", "dispatch", f'hl.dsp.focus({{ window = "address:{me["address"]}" }})')
 
         @staticmethod
         def _wake_pointer():

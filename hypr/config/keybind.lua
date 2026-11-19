@@ -20,10 +20,11 @@ local KEY = {
 	SETTINGS = ("%s + I"):format(mainMod),
 	CHEATSHEET_TOGGLE = ("%s + H"):format(mainMod),
 	CONTROL_CENTER = ("%s + S"):format(mainMod),
+	WIFI = ("%s + W"):format(mainMod),
 	SESSION = ("%s + ESCAPE"):format(mainMod),
 
 	CLOSE = ("%s + Q"):format(mainMod),
-	FLOAT = ("%s + W"):format(mainMod),
+	FLOAT = ("%s + V"):format(mainMod),
 	FULLSCREEN = ("%s + F"):format(mainMod),
 
 	WORKSPACE_NEXT_MONITOR = ("%s + CTRL + tab"):format(mainMod),
@@ -72,6 +73,7 @@ hl.bind(KEY.LOCK, hl.dsp.exec_cmd(SHELLMSG .. " lock"), { description = "Lock sc
 hl.bind(KEY.SETTINGS, hl.dsp.exec_cmd(SHELLMSG .. " settings"), { description = "Toggle settings" })
 hl.bind(KEY.CHEATSHEET_TOGGLE, hl.dsp.exec_cmd(SHELLMSG .. " cheatsheet"), { description = "Toggle cheatsheet" })
 hl.bind(KEY.CONTROL_CENTER, hl.dsp.exec_cmd(SHELLMSG .. " control-center"), { description = "Control center" })
+hl.bind(KEY.WIFI, hl.dsp.exec_cmd(SHELLMSG .. " panel network"), { description = "Toggle Wi-Fi popup" })
 hl.bind(KEY.SESSION, hl.dsp.exec_cmd(SHELLMSG .. " session"), { description = "Session menu" })
 
 -- 3. Window Management

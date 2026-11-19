@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# hyprminimal: Wi-Fi hotspot that runs next to the Wi-Fi connection, for adapters that allow managed + AP
+# at once (`iw list`: `#{ managed } <= 1, #{ AP } <= 1, total <= 2, #channels <= 1`).
+#   printf '%s\n' "$ssid" "$password" | hotspot-iface start <wifi-device>
+#   hotspot-iface stop
+# NetworkManager can't do this itself: wpa_supplicant switches a second interface to client mode first,
+# which such adapters refuse (EBUSY). So: a virtual access-point interface (ap0) left unmanaged by
+# NetworkManager, hostapd on it (on the network's own channel: one radio, one channel), dnsmasq for
+# addresses and DNS, and an nftables masquerade out through whatever the default route is.
+# Runs as root through pkexec: install.sh copies it, root-owned, to /usr/local/lib/hyprminimal/ and adds a
+# polkit rule letting local wheel users run that copy without a password. Never point the rule at a
+# user-writable file: anything in it would run as root. Every input below is validated for that reason.
+set -euo pipefail
+PATH=/usr/bin:/usr/sbin
+export LC_ALL=C
+AP=ap0
+RUN=/run/hyprminimal-hotspot          # hostapd.conf (0600), pids, dnsmasq.leases (read by Settings)
+NET=10.43.0                           # NetworkManager's own hotspot uses 10.42.0.0/24
+TABLE=hyprminimal_hotspot
+
+die() { echo "$*" >&2; exit 1; }
+
+kill_pid() {   # only a process with the expected name: the file could be stale and the pid reused
+  local f=$RUN/$1.pid pid
+  [[ -f $f ]] || return 0
+  pid=$(<"$f")
+  [[ $pid =~ ^[0-9]+$ && $(cat "/proc/$pid/comm" 2>/dev/null) == "$1" ]] && kill "$pid" 2>/dev/null || true
+  rm -f "$f"
+}
+
+stop() {
+  kill_pid hostapd
+  kill_pid dnsmasq
+  nft delete table ip "$TABLE" 2>/dev/null || true
+  if [[ -f $RUN/ip_forward ]]; then
+    [[ $(<"$RUN/ip_forward") =~ ^[01]$ ]] && cat "$RUN/ip_forward" > /proc/sys/net/ipv4/ip_forward
+    rm -f "$RUN/ip_forward"
+  fi
+  [[ -e /sys/class/net/$AP ]] && iw dev "$AP" del 2>/dev/null || true
+  rm -rf "$RUN"
+}
+
+start() {
+  local dev=$1 ssid psk info chan mhz mode mac new hex out i
+  [[ $dev =~ ^[A-Za-z0-9_.-]{1,15}$ && $dev != "$AP" && -e /sys/class/net/$dev/phy80211 ]] || die "not a Wi-Fi device: $dev"
+  IFS= read -r ssid || true
+  IFS= read -r psk || true
+  (( ${#ssid} >= 1 && ${#ssid} <= 32 )) && [[ $ssid != *[[:cntrl:]]* ]] || die "name must be 1 to 32 characters"
+  [[ $psk =~ ^[\ -~]{8,63}$ ]] || die "password must be 8 to 63 characters"
+  info=$(iw dev "$dev" info)
+  [[ $info =~ channel\ ([0-9]+)\ \(([0-9]+)\ MHz\) ]] || die "$dev is not connected to a Wi-Fi network"
+  chan=${BASH_REMATCH[1]} mhz=${BASH_REMATCH[2]}
+  (( mhz < 5900 )) || die "can't share a 6 GHz network; connect on 2.4 or 5 GHz"
+  mode=g; (( mhz > 4900 )) && mode=a
+
+  stop
+  mkdir -m 755 "$RUN"
+  # its own MAC: the station's with the locally-administered bit set (or, if already set, the last byte flipped)
+  mac=$(<"/sys/class/net/$dev/address")
+  new=$(printf '%02x' $(( (0x${mac:0:2} | 0x02) & 0xfe )))${mac:2}
+  [[ $new == "$mac" ]] && new=${mac:0:15}$(printf '%02x' $(( 0x${mac:15:2} ^ 0x01 )))
+  iw dev "$dev" interface add "$AP" type __ap addr "$new"
+  # NetworkManager grabs every new Wi-Fi interface and flips it to client mode: take it back
+  for i in $(seq 25); do nmcli -t -f DEVICE device 2>/dev/null | grep -qx "$AP" && break; sleep 0.2; done
+  nmcli device set "$AP" managed no 2>/dev/null || true
+  sleep 0.3
+  iw dev "$AP" set type __ap 2>/dev/null || true
+
+  hex=$(printf '%s' "$ssid" | od -An -tx1 | tr -d ' \n')
+  ( umask 077
+    printf '%s\n' "interface=$AP" "driver=nl80211" "ssid2=$hex" "hw_mode=$mode" "channel=$chan" \
+      "ieee80211n=1" "wmm_enabled=1" "auth_algs=1" "wpa=2" "wpa_key_mgmt=WPA-PSK" "rsn_pairwise=CCMP" \
+      "wpa_passphrase=$psk" > "$RUN/hostapd.conf"
+    if [[ $mode == a ]]; then echo "ieee80211ac=1" >> "$RUN/hostapd.conf"; fi )
+
+  ip addr add "$NET.1/24" dev "$AP"
+  ip link set "$AP" up || { stop; die "the adapter refused the hotspot interface"; }
+  out=$(hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" 2>&1) \
+    || { stop; die "hostapd failed: $(grep -v '^$' <<<"$out" | tail -1)"; }
+
+  : > "$RUN/dnsmasq.leases"
+  dnsmasq --conf-file=/dev/null --interface="$AP" --bind-interfaces --except-interface=lo \
+    --listen-address="$NET.1" --dhcp-range="$NET.10,$NET.254,12h" --dhcp-option=option:router,"$NET.1" \
+    --dhcp-option=option:dns-server,"$NET.1" --dhcp-leasefile="$RUN/dnsmasq.leases" \
+    --pid-file="$RUN/dnsmasq.pid" || { stop; die "dnsmasq failed to start"; }
+  chmod 644 "$RUN/dnsmasq.leases" 2>/dev/null || true
+
+  cat /proc/sys/net/ipv4/ip_forward > "$RUN/ip_forward"
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  nft -f - <<EOF || { stop; die "could not set up internet sharing (nftables)"; }
+table ip $TABLE {
+  chain postrouting { type nat hook postrouting priority srcnat; policy accept; ip saddr $NET.0/24 oifname != "$AP" masquerade; }
+  chain forward { type filter hook forward priority filter; policy accept; }
+}
+EOF
+}
+
+case "${1:-}" in
+  start) start "${2:-}" ;;
+  stop)  stop ;;
+  *) echo "usage: ${0##*/} start <wifi-device> (name and password on stdin) | stop" >&2; exit 2 ;;
+esac

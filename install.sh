@@ -189,6 +189,16 @@ done
 sudo systemctl enable NetworkManager.service
 systemctl is-active -q NetworkManager || systemctl is-active -q systemd-networkd || systemctl is-active -q iwd \
   || systemctl is-active -q dhcpcd || sudo systemctl start NetworkManager.service || true
+# Hotspot while staying on Wi-Fi: a root-owned copy of the interface helper, runnable by wheel without a password
+sudo install -D -o root -g root -m 755 "$DIR/scripts/hotspot-iface" /usr/local/lib/hyprminimal/hotspot-iface \
+  && printf '%s\n' \
+  '// hyprminimal: Settings → Network → Hotspot runs the hotspot next to the Wi-Fi connection through this helper' \
+  'polkit.addRule(function (action, subject) {' \
+  '  if (action.id == "org.freedesktop.policykit.exec" &&' \
+  '      action.lookup("program") == "/usr/local/lib/hyprminimal/hotspot-iface" &&' \
+  '      subject.local && subject.active && subject.isInGroup("wheel")) return polkit.Result.YES;' \
+  '});' | sudo install -D -m 644 /dev/stdin /etc/polkit-1/rules.d/50-hyprminimal-hotspot.rules \
+  || warn "could not install the hotspot helper; the hotspot will disconnect Wi-Fi while it's on"
 sudo systemctl enable bluetooth.service power-profiles-daemon.service
 systemctl --user enable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
 

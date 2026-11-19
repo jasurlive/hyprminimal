@@ -162,8 +162,12 @@ Output goes to `$XDG_RUNTIME_DIR/hyprminimal/startup.log`.
 - **Ethernet**: every wired adapter, including USB tethering from a phone: connect/disconnect, link speed,
   IP details, auto-connect.
 - **Hotspot**: share this computer's internet over Wi-Fi. Name, password (copy button) and band (2.4/5 GHz)
-  can be changed; while it's on, the connected devices are listed. Most adapters can't join a network and
-  host a hotspot at the same time, so Wi-Fi disconnects while the hotspot is on.
+  can be changed; while it's on, the connected devices are listed. If the adapter can join a network and
+  host a hotspot at once (`iw list` shows `#{ managed }` and `#{ AP }` together), the hotspot runs on a second
+  interface (`ap0`, hostapd + dnsmasq, run by `scripts/hotspot-iface`) on the network's channel and Wi-Fi stays
+  connected, so it's shared too; the band then follows the network. Otherwise Wi-Fi disconnects while the hotspot
+  is on. Needs `dnsmasq` (and `hostapd` for side by side); `install.sh` installs a root-owned copy of the helper
+  in `/usr/local/lib/hyprminimal/` and a polkit rule so wheel users run it without a password.
 - **VPN & other connections**: WireGuard, OpenVPN, mobile broadband and Bluetooth tethering profiles, each
   with an on/off switch and remove. **+** imports a WireGuard `.conf` (and `.ovpn` when
   `networkmanager-openvpn` is installed).
