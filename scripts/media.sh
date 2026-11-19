@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Media capsule for waybar: "<icon> <title>" or "Nothing Playing", like Noctalia.
+# Media capsule for waybar: "<icon> <title>"; empty (waybar hides the module) when nothing is playing.
 # One long-lived playerctl, no per-event subprocesses; playerctl dies with us.
 # While playing, the icon is a tiny equalizer drawn in braille: 5 slim dotted bars in 3 characters
 # (each holds 2 columns; the last column stays empty), spaced evenly (⣠⣴⡆ …). FPS frames a second from a table built once; bash builtins only, no forks per frame,
@@ -37,13 +37,13 @@ update() {  # status title artist
 # one line of JSON; while playing, the bars move one step each call
 emit() {
   local icon shown out
+  [[ $CLS == stopped ]] && { printf '{"text":"","class":"stopped"}\n'; return; }   # empty text: waybar hides the capsule
   case $CLS in
     playing)
       # each bar jumps to a new height 1-4, but never the same as before: always moving, never flat
       for i in 0 1 2 3 4; do H[i]=$(( (H[i] + RANDOM % 3) % 4 + 1 )); done
       icon="<span${ACCENT:+ foreground='$ACCENT'} font_family='DejaVu Sans' size='125%' rise='-1pt' letter_spacing='$GAP'>${EQ[H[0]*5+H[1]]}${EQ[H[2]*5+H[3]]}${EQ[H[4]*5]}</span>" ;;
-    paused)  icon="<span size='${PCT}%' rise='-1pt'>󰏤</span>" ;;
-    *)       icon="<span size='${PCT}%' rise='-1pt'>󰝛</span>" ;;
+    *)       icon="<span size='${PCT}%' rise='-1pt'>󰏤</span>" ;;
   esac
   local sp="  "; [[ $CLS == playing ]] && sp=" "   # the equalizer's empty 6th column is already a gap
   json "$icon$sp$TEXT" shown
