@@ -1,5 +1,6 @@
-// Close the swaync control center (Super+S) when the workspace or focused monitor changes, e.g. Super+2.
-// swaync is a layer surface, so Hyprland leaves it open across workspaces by itself.
+// Close the swaync control center (Super+S) and the bar popups (battery, Wi-Fi, ...) when the workspace or
+// focused monitor changes (e.g. Super+2) or a window opens. They are layer surfaces, so Hyprland leaves
+// them open (and on top of the new window) by itself.
 // Blocks on Hyprland's event socket (no polling); started and stopped by bin/hyprminimal.
 // Replaces scripts/workspace-watch.py (kept as the fallback when gcc is missing): ~0.5 MB instead of ~12 MB.
 #include <errno.h>
@@ -12,12 +13,19 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static void hide_cc(void) {
+static void hide_popups(void) {
     pid_t pid = fork();
     if (pid == 0) {
         // --auto-start=no: never D-Bus-activate the stock swaync
         execlp("busctl", "busctl", "--user", "--auto-start=no", "call", "org.erikreider.swaync.cc",
                "/org/erikreider/swaync/cc", "org.erikreider.swaync.cc", "SetVisibility", "b", "false",
+               (char *)NULL);
+        _exit(127);
+    }
+    pid = fork();
+    if (pid == 0) {   // the bar popup, inside the resident hyprminimal-settings (no-op when none is open)
+        execlp("gdbus", "gdbus", "call", "--session", "--dest", "dev.hyprminimal.Settings", "--object-path",
+               "/dev/hyprminimal/Settings", "--method", "org.gtk.Actions.Activate", "panel-close", "[]", "{}",
                (char *)NULL);
         _exit(127);
     }
@@ -44,13 +52,13 @@ static void watch(const char *path) {
         char *line = buf, *nl;
         while ((nl = memchr(line, '\n', len - (size_t)(line - buf)))) {
             *nl = 0;
-            if (starts(line, "workspace>>") || starts(line, "focusedmon>>")) hit = 1;
+            if (starts(line, "workspace>>") || starts(line, "focusedmon>>") || starts(line, "openwindow>>")) hit = 1;
             line = nl + 1;
         }
         len -= (size_t)(line - buf);
         memmove(buf, line, len);
         if (len == sizeof buf - 1) len = 0;   // absurdly long line: drop it
-        if (hit) hide_cc();
+        if (hit) hide_popups();
     }
     close(fd);
 }
@@ -61,7 +69,7 @@ int main(void) {
     const char *rt = getenv("XDG_RUNTIME_DIR");
     char path[sizeof ((struct sockaddr_un *)0)->sun_path];
     snprintf(path, sizeof path, "%s/hypr/%s/.socket2.sock", rt ? rt : "/tmp", sig);
-    signal(SIGCHLD, SIG_IGN);   // reap busctl children automatically
+    signal(SIGCHLD, SIG_IGN);   // reap busctl/gdbus children automatically
     while (access(path, F_OK) == 0) {   // Hyprland gone = socket gone: exit
         watch(path);
         sleep(1);

@@ -45,6 +45,13 @@ window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0
 .panel button.tile { background: rgba(44, 49, 74, 0.6); border: 1px solid #4b517a; border-radius: 0; padding: 8px 12px; }
 .panel button.tile:hover { background: rgba(122, 136, 207, 0.35); }
 .panel button.tile.on { background: #7a88cf; color: #1f2335; }
+.panel button.mode { padding: 8px 10px 8px 14px; font-weight: 700; }
+/* keycap like the control center's (Super+S) key hints */
+.panel .key-hint {
+  font-size: 13px; font-weight: 800; color: rgba(169, 177, 214, 0.75);
+  min-width: 14px; padding: 2px 6px; border: 1px solid rgba(169, 177, 214, 0.4); border-radius: 5px;
+}
+.panel button.tile.on .key-hint { color: rgba(31, 35, 53, 0.8); border-color: rgba(31, 35, 53, 0.45); }
 .panel button.round { border-radius: 999px; min-width: 42px; min-height: 42px; padding: 0; font-family: "Symbols Nerd Font"; font-size: 20px; }
 .panel button.round.main { background: #7a88cf; color: #1f2335; min-width: 52px; min-height: 52px; font-size: 24px; }
 .panel levelbar trough { background: #2c314a; min-height: 8px; border-radius: 0; }
@@ -108,6 +115,16 @@ def bg(work, done, owner=None, key=None):
             owner._inflight.discard(key)
         GLib.idle_add(lambda: done(r) or False)
     threading.Thread(target=t, daemon=True).start()
+
+
+def hide_control_center():
+    """Hide the swaync control center (Super+S) without waiting. --auto-start=no: never start stock swaync."""
+    try:
+        subprocess.Popen(["busctl", "--user", "--auto-start=no", "call", "org.erikreider.swaync.cc",
+                          "/org/erikreider/swaync/cc", "org.erikreider.swaync.cc", "SetVisibility", "b", "false"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
 
 
 def label(text="", cls=None, xalign=0, **kw):
@@ -203,7 +220,8 @@ class Panel(Gtk.Window):
         import hyprminimal_settings
         hyprminimal_settings.pointerize(box)          # hand pointer on every button/slider
         keys = Gtk.EventControllerKey()
-        keys.connect("key-pressed", lambda _c, kv, *_: (self.manager.close() or True) if kv == Gdk.KEY_Escape else False)
+        keys.connect("key-pressed", lambda _c, kv, *_: (self.manager.close() or True) if kv == Gdk.KEY_Escape
+                     else self.key(Gdk.keyval_to_lower(kv)))
         self.add_controller(keys)
 
     @staticmethod
@@ -220,6 +238,9 @@ class Panel(Gtk.Window):
 
     def refresh(self):
         pass
+
+    def key(self, keyval):
+        return False  # panel shortcuts; True = handled
 
     def interval(self):
         return 0      # seconds between refreshes while open (0 = never)
@@ -288,15 +309,34 @@ class BatteryPanel(Panel):
         card.append(grid)
         box.append(card)
         box.append(label("POWER MODE", "pink", margin_top=4))
-        self.modes = Gtk.Box(spacing=6, homogeneous=True)
+        # one full-width tile per mode, keycap at the middle right like the Super+S toggles: S / B / P
+        self.modes = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.mode_btns = {}
-        for mode, text in (("power-saver", "Saver"), ("balanced", "Balanced"), ("performance", "Performance")):
-            b = Gtk.Button(label=text, css_classes=["tile"])
-            b.connect("clicked", lambda _b, m=mode: bg(lambda: run("powerprofilesctl", "set", m),
-                                                       lambda _r: self.refresh()))
+        self.mode_keys = {}
+        for mode, text, key in (("power-saver", "Power Saver", "S"), ("balanced", "Balanced", "B"),
+                                ("performance", "Performance", "P")):
+            row = Gtk.Box(spacing=8)
+            row.append(label(text, hexpand=True))
+            cap = label(key, "key-hint", xalign=0.5, valign=Gtk.Align.CENTER)
+            cap.set_can_target(False)
+            row.append(cap)
+            b = Gtk.Button(child=row, css_classes=["tile", "mode"])
+            b.connect("clicked", lambda _b, m=mode: self.set_mode(m))
             self.modes.append(b)
             self.mode_btns[mode] = b
+            self.mode_keys[Gdk.keyval_from_name(key.lower())] = mode
         box.append(self.modes)
+
+    def set_mode(self, mode):
+        for m, b in self.mode_btns.items():      # show it at once; refresh() confirms
+            (b.add_css_class if m == mode else b.remove_css_class)("on")
+        bg(lambda: run("powerprofilesctl", "set", mode), lambda _r: self.refresh())
+
+    def key(self, keyval):
+        mode = self.mode_keys.get(keyval)
+        if mode:
+            self.set_mode(mode)
+        return bool(mode)
 
     def interval(self):
         return 5
@@ -969,6 +1009,7 @@ class PanelManager:
         # no outside-click catcher for panels (it swallowed the click): Hyprland closes the popup on a
         # click outside it instead (hypr/layerrules.lua), and the click still reaches the window
         self.close()
+        hide_control_center()   # one popup at a time: never on top of the Super+S control center
         p = self._get(kind)
         if LS:
             LS.set_keyboard_mode(p, LS.KeyboardMode.ON_DEMAND)

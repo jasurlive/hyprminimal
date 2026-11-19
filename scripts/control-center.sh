@@ -13,6 +13,9 @@ if [[ $v == "b true" ]]; then call SetVisibility b false; exit 0; fi
 tmp=${XDG_RUNTIME_DIR:-/tmp}/hyprminimal/cc; mkdir -p "$tmp"
 rm -f "$tmp/expanded"
 call SetVisibility b true
+# one popup at a time: close a bar popup (battery, Wi-Fi, ...) that is open under the control center
+gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+  --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1 &
 
 # ---- live info, after the panel is up
 read -r _ a b c d e f g _ </proc/stat; t1=$((a+b+c+d+e+f+g)) i1=$((d+e))
