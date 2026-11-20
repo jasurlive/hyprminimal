@@ -1,9 +1,9 @@
 # hyprminimal
 
-Hyprland for typing and coding. Not for gamers.
+Hyprland theme for endless typing and coding.
 No wallpaper, no blur, no animations. Official Arch packages only.
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/eefb15bc-68b6-4ba6-a3c8-8cec93c29ac0" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/62f3eec3-b9be-4a82-b8e4-9e8d4b430a98" />
 
 ## Install
 
