@@ -1,54 +1,11 @@
 # hyprminimal
-A Noctalia look-alike built only from official Arch packages (no AUR).
+
+Hyprland for typing and coding. Not for gamers.
+No wallpaper, no blur, no animations. Official Arch packages only.
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/eefb15bc-68b6-4ba6-a3c8-8cec93c29ac0" />
 
-| Noctalia | hyprminimal | Config |
-|---|---|---|
-| Bar: workspace pills · `15 \| 17:04` · media capsule, bell, battery, ↓ speed | waybar | `waybar/`, `scripts/media.sh` |
-| Notifications (top right) | swaync | `swaync/` |
-| Control center (Super+S, or click clock/bell): Wi-Fi, network list, System and toggles on keys 1–7, session buttons, media (also a click on the media capsule), notifications | swaync | `swaync/` |
-| Volume / brightness OSD | swayosd | `swayosd/` |
-| Launcher (Super+R); `rm NAME` + Enter uninstalls an app (pacman -Rns + cache clean, asks first) | rofi | `rofi/theme.rasi`, `helpers/launcher.c`, `scripts/remove-app.sh` |
-| Session panel (Lock, Lock & Suspend, Reboot, Shut Down, keys 1-4) | rofi | `rofi/menu.rasi`, `scripts/session.sh` |
-| Lock screen (Super+L) | hyprlock | `hyprlock/` |
-| Desktop background (theme colour + Arch logo) | Hyprland `misc.background_color` + `helpers/panels.c` | follows Settings → General → Theme |
-| Shell layer rules (instant popups) | Hyprland layer rules | `hypr/layerrules.lua` |
-| Settings (Super+I): bar, notifications, lock screen, night light, system | hyprminimal-settings | `settings/`, `settings.json` |
-| Keybinds (Super+H): search, edit, record, add, remove shortcuts | hyprminimal-settings | edits `~/.config/hypr/keybind.lua` |
-| Bar popups: click clock/date (calendar), battery (power mode), ↓ speed (network), CPU (system) | C helper (GTK4) | `helpers/panels.c` |
-| Wi-Fi network list (control center ›) | hyprminimal-settings | `settings/panels.py` |
-
-## Settings
-
-`bin/hyprminimal-settings` (Super+I) is the one place to change hyprminimal. Every change is saved to
-`settings.json`, rendered into `.generated/` and applied live. Eight themes (Settings → General): Charcoal, Hygge, Spruce, Fjord, Linen, Matte and Sage from the
-django-react template, plus Tokyo Night Moon. Super+I toggles the window.
-
-Super+H opens it on **Keybinds**. Each edit to `keybind.lua` is backed up to
-`~/.config/hypr/.pre-hyprminimal-backup/`, Hyprland is reloaded, and the change is undone if Hyprland reports
-an error. Removed shortcuts are commented out, not deleted. Shortcuts defined in a loop (Super+1…9) are
-shown but must be edited in the file.
-
-## Performance
-
-The bar popups (calendar, battery, network, system) are one small resident C program (`helpers/panels.c`,
-GTK4 with software rendering, ~22 MB of its own, 0 wakeups while hidden). It reads `/proc` and `/sys`
-directly, gets the power mode from power-profiles-daemon over D-Bus, and the clock ticks on the second
-boundary. The settings app is started (hidden) by `hyprminimal start` too, so Super+I, Super+H and bar
-clicks are a D-Bus call: about 30-80 ms to show. Bar, notifications and OSD
-are native programs (C++, Vala, Rust, C) idling near 0% CPU.
-The bar's network speed and the watchdog are small C helpers (`helpers/`): no polling forks, the bar is only
-redrawn when its text changes, and the media capsule's square-dot equalizer steps through 4 pre-drawn frames 3 times a second only
-while something plays (only that small icon repaints; paused or stopped: no timer at all). There is no
-wallpaper program: Hyprland paints the theme colour and the popup program draws the Arch logo once. No blur, no
-translucency, no shadows and no Hyprland animations: frames appear at once and idle redraws cost little.
-CPU/RAM widgets update every 5 s. Settings → General → Keep Settings ready parks the Settings window on a
-hidden workspace (Super+I in ~20 ms); off: cold start, ~110 MB RAM saved.
-
 ## Install
-
-On a fresh Arch Linux (any machine, as your normal user with sudo):
 
 ```bash
 sudo pacman -S --needed git
@@ -56,25 +13,34 @@ git clone https://github.com/jasurlive/hyprminimal ~/hyprminimal
 cd ~/hyprminimal && ./install.sh     # then: sudo reboot
 ```
 
-It installs Hyprland, hyprminimal and a base desktop (PipeWire, NetworkManager, Bluetooth, GPU drivers,
-Firefox, Thunar, kitty) from the official repos only, puts a default Hyprland config in `~/.config/hypr`
-(an existing one is backed up first), and starts Hyprland when you log in on tty1 (plain TTY login, no display manager). Options:
-`--no-autostart`, `--reset-hypr`, `--no-gpu`, `-y` (`./install.sh --help`). Re-running it is safe.
-
-The repo can live anywhere: it is linked at `~/.local/share/hyprminimal`, and the commands in `~/.local/bin`.
+Options: `--no-autostart`, `--reset-hypr`, `--no-gpu`, `-y`.
 
 ```bash
-hyprminimal start | stop | status
-hyprminimal restart   # after editing a config
+hyprminimal start | stop | status | restart
 ```
 
-Logs: `$XDG_RUNTIME_DIR/hyprminimal/*.log`. hyprminimal starts at login.
+Logs: `$XDG_RUNTIME_DIR/hyprminimal/*.log`. Help: [GUIDE.md](GUIDE.md).
 
-Settings reference, crash recovery and troubleshooting: [GUIDE.md](GUIDE.md).
+## Keys
 
-## Changes outside this folder
+| Key | What |
+|---|---|
+| Super+R | Launcher (`rm NAME` uninstalls) |
+| Super+S | Control center |
+| Super+I | Settings (type to search) |
+| Super+H | Keybinds |
+| Super+L | Lock |
 
-The default Hyprland config is in `hypr/config/`. Settings backs up `keybind.lua` edits in
-`~/.config/hypr/.pre-hyprminimal-backup/`.
-- `keybind.lua`, `Scripts/accel-step.sh`: call `bin/hyprminimal-msg`.
-- `hyprland.lua`: last line loads `hypr/layerrules.lua` (popup rules).
+## Parts
+
+| Part | Program | Config |
+|---|---|---|
+| Bar | waybar | `waybar/` |
+| Notifications | swaync | `swaync/` |
+| OSD | swayosd | `swayosd/` |
+| Launcher, session menu | rofi | `rofi/` |
+| Lock | hyprlock | `hyprlock/` |
+| Bar popups | C helper | `helpers/panels.c` |
+| Settings | hyprminimal-settings | `settings/`, `settings.json` |
+
+Keybind edits are backed up to `~/.config/hypr/.pre-hyprminimal-backup/`.

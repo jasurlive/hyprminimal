@@ -1008,6 +1008,16 @@ def run_gui(start_page):
                 if row.pid == "keybinds":
                     GLib.idle_add(lambda: self.kb_search.grab_focus() and False)   # must return False: run once
 
+        def focus_search(self, page):
+            """On open, type to jump: the sidebar search gets the keyboard (Keybinds keeps its own search).
+            Old text is cleared so the sidebar isn't left filtered from last time."""
+            row = self.nav.get_selected_row()
+            if row is not None and row.pid == "keybinds":   # also when "last" resolved to it
+                return
+            if self.search.get_text():
+                self.search.set_text("")
+            GLib.idle_add(lambda: self.search.grab_focus() and False)   # after present(): run once
+
         def _filter_sidebar(self, entry):
             q = entry.get_text().lower().strip()
             first = None
@@ -1789,6 +1799,7 @@ def run_gui(start_page):
             else:
                 self.win.present()
             self.shown = True
+            self.win.focus_search(page)
             GLib.timeout_add(100, self._wake_pointer)
 
         @staticmethod
