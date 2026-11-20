@@ -182,7 +182,7 @@ def glass_osd(name):
 
 
 def glass_panels(name):
-    """Bar popups (GTK4, settings/panels.py)."""
+    """Bar popups (GTK4: helpers/panels.c via .generated/panels.css, and settings/panels.py)."""
     r = roles(name)
     edge, hi = glass_edge(name), glass_edge(name, 0.6)
     drop = "rgba(0, 0, 0, 0.35)" if r["dark"] else "rgba(0, 0, 0, 0.12)"

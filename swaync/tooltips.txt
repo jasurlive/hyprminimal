@@ -1,10 +1,10 @@
 # Hover text for the control-centre buttons (Super+S).
-# Keys 1-5 flip the toggles, K plays/pauses, C clears notifications while the panel is open (swaync/cursor/pointer.c).
+# Keys 1-7 press Wi-Fi, the network list, System and the toggles, K plays/pauses, C clears notifications while the panel is open (swaync/cursor/pointer.c).
 # One per line: text the button label contains <TAB> tooltip. Read by swaync/cursor/pointer.c.
-Wi-Fi	Turn the Wi-Fi radio on or off. The › next to it lists networks (key 1)
-Bluetooth	Turn Bluetooth on or off (key 2)
-Caffeine	Keep the computer awake: no screen dimming, locking or sleep, and closing the lid won't suspend. Turn off to go back to normal. (key 3)
-Night Light	Warmer screen colours to reduce blue light in the evening (key 4)
-Silent	Hide notification pop-ups; they still collect here (key 5)
-System	CPU and memory use. Click for details
+Wi-Fi	Turn the Wi-Fi radio on or off (key 1). The › next to it lists networks (key 2)
+Bluetooth	Turn Bluetooth on or off (key 4)
+Caffeine	Keep the computer awake: no screen dimming, locking or sleep, and closing the lid won't suspend. Turn off to go back to normal. (key 5)
+Night Light	Warmer screen colours to reduce blue light in the evening (key 6)
+Silent	Hide notification pop-ups; they still collect here (key 7)
+System	CPU and memory use. Click for details (key 3)
 Clear all	Remove every notification (key C)

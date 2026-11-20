@@ -3,6 +3,9 @@
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
 cmd=${1:-}; shift
+# action on the bar popup program (helpers/panels.c); fails fast when it isn't running
+panels_call() { gdbus call --session --dest dev.hyprminimal.Panels --object-path /dev/hyprminimal/Panels \
+                  --method org.gtk.Actions.Activate "$1" "$2" "{}" >/dev/null 2>&1; }
 
 case $cmd in
   launcher)       pkill -x rofi && exit   # numbered, last used first: C helper, bash fallback without gcc
@@ -21,17 +24,28 @@ case $cmd in
                     sleep 0.5
                   done ;;
   control-center) exec "$DIR/scripts/control-center.sh" ;;   # live info in the tiles, then toggle
-  panel)          exec "$DIR/bin/hyprminimal-settings" --panel "$1" ;;   # calendar | battery | network | system | wifi
+  panel)          # calendar | battery | network | system: helpers/panels.c. wifi (network list): Settings app
+                  [[ ${1:-} =~ ^[a-z]+$ ]] || exit 2
+                  if [[ $1 == wifi ]]; then
+                    panels_call panel-close "[]"
+                    exec "$DIR/bin/hyprminimal-settings" --panel wifi
+                  fi
+                  panels_call panel "[<'$1'>]" && exit 0
+                  # not running (yet): start it; it toggles the popup itself
+                  [[ -x $DIR/.generated/bin/panels ]] && exec setsid -f "$DIR/.generated/bin/panels" --panel "$1" >/dev/null 2>&1 </dev/null
+                  notify-send -a hyprminimal -u critical "Bar popups unavailable" \
+                    "helpers/panels.c isn't built yet: run hyprminimal restart (needs gcc, gtk4, gtk4-layer-shell)" ;;
   panel-close)    # close the open bar popup (sent by Hyprland on a click outside it, see hypr/layerrules.lua)
-                  exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-                    --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1 ;;
+                  panels_call panel-close "[]" &
+                  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+                    --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1
+                  wait ;;
   settings-close) # hide the Settings window (Hyprland, on a click outside it: hypr/layerrules.lua)
                   exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
                     --method org.gtk.Actions.Activate close "[]" "{}" >/dev/null 2>&1 ;;
   catch)          # $1 = process name of a popup that should close on a click outside it ("" = closed)
                   [[ ${1:-} =~ ^[a-z-]*$ ]] || exit 2
-                  exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-                    --method org.gtk.Actions.Activate catch "[<'${1:-}'>]" "{}" >/dev/null 2>&1 ;;
+                  panels_call catch "[<'${1:-}'>]" ;;
   session)        pkill -x rofi || exec "$DIR/scripts/session.sh" ;;
   media)
     case ${1:-toggle} in toggle) exec playerctl play-pause ;; *) exec playerctl "$1" ;; esac ;;

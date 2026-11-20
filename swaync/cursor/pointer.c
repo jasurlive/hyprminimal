@@ -1,7 +1,8 @@
 // pointer.c: LD_PRELOAD shim for swaync, which has no config for any of these:
 //  - GTK4 CSS has no "cursor" property, so every clickable widget gets a hand pointer when mapped
 //  - buttons get hover text from $HYPRMINIMAL_SWAYNC_TOOLTIPS (lines: label-substring<TAB>tooltip)
-//  - control center: keys 1-9 flip the toggle tiles in reading order, each tile shows its number;
+//  - control center: keys 1-9 press the top-row tiles (Wi-Fi, › network list, System) and the toggle
+//    tiles in reading order, each tile shows its number;
 //    K plays/pauses the current player, C clears all notifications ("C" keycap after "Clear all")
 //  - control center: the "N notifications" header follows swaync's live count (D-Bus SubscribeV2 signal)
 //  - control center: live tile labels without a config reload. scripts/control-center.sh writes
@@ -64,6 +65,14 @@ static void keep_hidden(GtkWidget *w) {
   if (gtk_widget_get_visible(w)) { gtk_widget_set_visible(w, FALSE); g_idle_add(apply_idle, NULL); }
 }
 
+// keyed: the tiles keys 1-9 press: toggles, and every button of the top row (buttons-grid#info)
+static gboolean keyed(GtkWidget *b) {
+  if (GTK_IS_TOGGLE_BUTTON(b)) return TRUE;
+  for (GtkWidget *p = gtk_widget_get_parent(b); p; p = gtk_widget_get_parent(p))
+    if (gtk_widget_has_css_class(p, "widget-buttons-grid")) return gtk_widget_has_css_class(p, "info");
+  return FALSE;
+}
+
 static void walk(GtkWidget *w, gboolean in_grid, GPtrArray *buttons, GPtrArray *toggles, GtkWidget **list) {
   if (list && gtk_widget_has_css_class(w, "control-center-list-placeholder")
       && !g_object_get_data(G_OBJECT(w), "hyprminimal-hidden")) {
@@ -83,7 +92,7 @@ static void walk(GtkWidget *w, gboolean in_grid, GPtrArray *buttons, GPtrArray *
   in_grid = in_grid || gtk_widget_has_css_class(w, "widget-buttons-grid");
   if (in_grid && GTK_IS_BUTTON(w)) {
     if (buttons) g_ptr_array_add(buttons, w);
-    if (toggles && GTK_IS_TOGGLE_BUTTON(w)) g_ptr_array_add(toggles, w);
+    if (toggles && keyed(w)) g_ptr_array_add(toggles, w);
     return;
   }
   if (list && !*list && gtk_widget_has_css_class(w, "control-center-list")) {
@@ -167,7 +176,14 @@ static void cc_apply(void) {
       g_free(text);
     }
   }
-  for (guint i = 0; i < toggles->len && i < 9; i++) badge(toggles->pdata[i], i + 1);
+  for (guint i = 0; i < toggles->len && i < 9; i++) {
+    GtkLabel *l = button_label(toggles->pdata[i]);
+    char num[4];
+    g_snprintf(num, sizeof num, "%u", i + 1);
+    // the › beside Wi-Fi is too narrow for an overlay: keycap after the arrow instead
+    if (l && !strcmp(gtk_label_get_text(l), "󰅂")) key_after(toggles->pdata[i], num);
+    else badge(toggles->pdata[i], i + 1);
+  }
   if (list) {
     // nothing listed: hide the whole notification area (the header says "No notifications")
     GtkWidget *rows = NULL, *area = gtk_widget_get_ancestor(list, GTK_TYPE_STACK);

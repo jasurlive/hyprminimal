@@ -21,6 +21,8 @@ local KEY = {
 	CHEATSHEET_TOGGLE = ("%s + H"):format(mainMod),
 	CONTROL_CENTER = ("%s + S"):format(mainMod),
 	WIFI = ("%s + W"):format(mainMod),
+	CALENDAR = ("%s + D"):format(mainMod),
+	BATTERY = ("%s + P"):format(mainMod),
 	SESSION = ("%s + ESCAPE"):format(mainMod),
 
 	CLOSE = ("%s + Q"):format(mainMod),
@@ -74,6 +76,8 @@ hl.bind(KEY.SETTINGS, hl.dsp.exec_cmd(SHELLMSG .. " settings"), { description = 
 hl.bind(KEY.CHEATSHEET_TOGGLE, hl.dsp.exec_cmd(SHELLMSG .. " cheatsheet"), { description = "Toggle cheatsheet" })
 hl.bind(KEY.CONTROL_CENTER, hl.dsp.exec_cmd(SHELLMSG .. " control-center"), { description = "Control center" })
 hl.bind(KEY.WIFI, hl.dsp.exec_cmd(SHELLMSG .. " panel network"), { description = "Toggle Wi-Fi popup" })
+hl.bind(KEY.CALENDAR, hl.dsp.exec_cmd(SHELLMSG .. " panel calendar"), { description = "Toggle calendar popup" })
+hl.bind(KEY.BATTERY, hl.dsp.exec_cmd(SHELLMSG .. " panel battery"), { description = "Toggle battery popup" })
 hl.bind(KEY.SESSION, hl.dsp.exec_cmd(SHELLMSG .. " session"), { description = "Session menu" })
 
 -- 3. Window Management
