@@ -7,7 +7,6 @@ waybar                    # Status bar: workspace, clock, CPU, RAM, battery, net
 rofi                      # Application launcher, search menu, and custom application menus.
 swaync                    # Notification daemon and notification center.
 swayosd                   # On-screen display for volume, brightness, and media controls.
-swaybg                    # Wallpaper setter for Wayland.
 
 # Hyprland session management
 hyprlock                  # Lock screen when manually locking the session.
@@ -21,7 +20,6 @@ libadwaita                # Settings window widgets.
 gtk4-layer-shell          # Bar popups attached to the screen edge.
 gcc                       # Builds the small C helpers (helpers/, swaync/cursor/).
 pkgconf                   # Finds gtk4 flags for the swaync shim and the bar popups.
-imagemagick               # Wallpaper thumbnails.
 
 # Media and system utilities
 playerctl                 # Control media players: play, pause, next, previous, volume.

@@ -2,7 +2,7 @@
 # Bar error pill: red "⚠ Bar" (or "⚠ 2 errors") while a part of hyprminimal failed; hidden otherwise.
 # No polling: bin/hyprminimal and Settings refresh it with `pkill -RTMIN+9 waybar` when an error appears or clears.
 E=${XDG_RUNTIME_DIR:-/tmp}/hyprminimal/errors
-declare -A NAME=([waybar]="Bar" [swaync]="Notifications" [swayosd-server]="OSD" [swaybg]="Wallpaper"
+declare -A NAME=([waybar]="Bar" [swaync]="Notifications" [swayosd-server]="OSD"
                  [settings]="Settings")
 json() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\n'/\\n}; s=${s//$'\t'/ }; printf '%s' "$s"; }
 n=0 first="" tip=""

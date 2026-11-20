@@ -32,18 +32,11 @@ hl.config({
     },
     decoration = {
         rounding = 12,
-        shadow = { enabled = true },
+        -- performance: no shadows, no translucency, no blur (each costs GPU work on every redraw)
+        shadow = { enabled = false },
         active_opacity = 1.0,
-        inactive_opacity = 0.98,
+        inactive_opacity = 1.0,
         fullscreen_opacity = 1.0,
-        blur = {
-            enabled = true,
-            size = 1,
-            passes = 3,
-            new_optimizations = true,
-            ignore_opacity = true,
-            xray = false,
-            special = true,
-        },
+        blur = { enabled = false },
     },
 })

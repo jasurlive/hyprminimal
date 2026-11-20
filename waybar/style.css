@@ -9,9 +9,9 @@
   border-radius: 0;
 }
 
-/* Noctalia bar: surface at 30% opacity, radius 5 */
+/* solid bar (no translucency: nothing behind it to blend or blur), radius 5 */
 window#waybar {
-  background: alpha(@surface, 0.30);
+  background: @surface;
   color: @on_surface;
   border-radius: 5px;
 }
@@ -35,7 +35,6 @@ tooltip label { color: @on_surface_var; }
   font-size: 13px;
   font-weight: 500;
   box-shadow: none;
-  transition: min-width 250ms ease, background 250ms ease, border-color 250ms ease;
 }
 #workspaces button.active { min-width: 52px; border-color: @primary; background: alpha(@primary, 0.25); color: @on_surface; }
 #workspaces button.urgent { border-color: @state_crit; background: alpha(@state_crit, 0.25); color: @state_crit; }

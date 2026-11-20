@@ -14,7 +14,6 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 LINK="$HOME/.local/share/hyprminimal"   # stable path every config uses, wherever the repo was cloned
 HYPR="$HOME/.config/hypr"
-WALL="$HOME/Pictures/Wallpapers/hyprminimal.png"
 AUTOSTART=1 RESET_HYPR=0 RESET_KITTY=0 GPU=1 YES=0
 
 for a in "$@"; do
@@ -97,15 +96,10 @@ fi
 for b in "$DIR"/bin/*; do ln -sfn "$LINK/bin/${b##*/}" "$HOME/.local/bin/${b##*/}"; done
 chmod +x "$DIR"/bin/* "$DIR"/scripts/*.sh "$DIR"/hypr/config/Scripts/*.sh
 
-# ------------------------------------------------------------------ folders + wallpaper
-step "Creating folders and the default wallpaper"
+# ------------------------------------------------------------------ folders
+step "Creating folders"
 xdg-user-dirs-update 2>/dev/null || true
-mkdir -p "$HOME/Pictures/Wallpapers" "$HOME/Pictures/Screenshots"
-if [[ ! -f $WALL ]]; then
-  # Tokyo Night Moon: soft glow in the middle, darker edges
-  magick -size 4200x4200 radial-gradient:'#3b4261'-'#1b1d2b' -gravity center -crop 3840x2160+0+0 +repage \
-    -depth 8 "$WALL"
-fi
+mkdir -p "$HOME/Pictures/Screenshots"
 
 # ------------------------------------------------------------------ Hyprland config
 step "Installing the Hyprland config to $HYPR"

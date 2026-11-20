@@ -4,7 +4,7 @@
     primary:      #7a88cf;
     on-primary:   #1f2335;
     secondary:    #d7729f;
-    surface:      #1f2335e0;
+    surface:      #1f2335;
     surface-var:  #2c314acc;
     on-surface:   #a9b1d6;
     on-surface-v: #c0caf5;

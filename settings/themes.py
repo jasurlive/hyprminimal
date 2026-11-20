@@ -1,5 +1,6 @@
-"""hyprminimal themes: Charcoal (from the django-react template, front/src/css/theme.css) and Tokyo Night,
-turned into the colour roles every hyprminimal part uses, plus the "liquid glass" look.
+"""hyprminimal themes: Charcoal + Hygge, Spruce, Fjord, Linen, Matte, Sage (from the django-react template,
+front/src/css/theme.css) and Tokyo Night,
+turned into the colour roles every hyprminimal part uses. Solid surfaces only: no blur, no translucency.
 
 The repo's own style files are written in Tokyo Night Moon. recolor() swaps each of those colours
 for the chosen theme's colour in the same role, so every file (waybar, swaync, OSD, rofi, hyprlock,
@@ -14,14 +15,39 @@ TEMPLATE = {
     "charcoal": dict(label="Charcoal", dark=True, bg="#181818", bg_elev="#202020", surface="#292929",
                      text="#d4d4d4", text_strong="#f5f5f5", muted="#999999", accent="#a3a3a3",
                      accent_hover="#d4d4d4", danger="#ef7777"),
+    # the template's six extra themes (calm scandinavian palettes), same tokens
+    "linen":    dict(label="Linen", dark=False, bg="#f4f1ec", bg_elev="#fbfaf7", surface="#ece8e1",
+                     text="#3a3835", text_strong="#23211f", muted="#77726a", accent="#7a6a56",
+                     accent_hover="#66584a", danger="#b4534b"),
+    "matte":    dict(label="Matte", dark=False, bg="#e8e6e3", bg_elev="#f0eeeb", surface="#e1dfdb",
+                     text="#3b3936", text_strong="#262422", muted="#75716b", accent="#8a6f5e",
+                     accent_hover="#745c4d", danger="#b0504a"),
+    "sage":     dict(label="Sage", dark=False, bg="#f1f1ec", bg_elev="#f9f9f5", surface="#e7e8e1",
+                     text="#353a35", text_strong="#212521", muted="#737a72", accent="#6f8a6f",
+                     accent_hover="#5c745c", danger="#b0504a"),
+    "hygge":    dict(label="Hygge", dark=True, bg="#1d2023", bg_elev="#23272a", surface="#2a2e32",
+                     text="#d6d0c6", text_strong="#eee9e1", muted="#8f8a82", accent="#c4a57c",
+                     accent_hover="#d6bc98", danger="#d08a80"),
+    "spruce":   dict(label="Spruce", dark=True, bg="#1a1f1d", bg_elev="#202624", surface="#27302c",
+                     text="#cfd5cd", text_strong="#e9eee6", muted="#869087", accent="#9db59a",
+                     accent_hover="#b6cbb3", danger="#d08a80"),
+    "fjord":    dict(label="Fjord", dark=True, bg="#191e24", bg_elev="#1f252c", surface="#262d35",
+                     text="#cdd4dc", text_strong="#e8edf2", muted="#858f9a", accent="#93abc2",
+                     accent_hover="#afc3d6", danger="#d08a80"),
     # hyprminimal's original palette (Tokyo Night Moon): the repo's style files are written in it
     "tokyo":    dict(label="Tokyo Night", dark=True, bg="#1f2335", bg_elev="#262a40", surface="#2c314a",
                      text="#c0caf5", text_strong="#c0caf5", muted="#a9b1d6", accent="#7a88cf",
                      accent_hover="#9aa5e0", danger="#f7768e"),
 }
-ORDER = ["charcoal", "tokyo"]
+ORDER = ["charcoal", "hygge", "spruce", "fjord", "linen", "matte", "sage", "tokyo"]
 DESCRIPTION = {
     "charcoal": "Neutral dark grey, soft grey accent",
+    "hygge": "Matte slate, linen text, smoked-oak accent",
+    "spruce": "Nordic forest at dusk, soft moss accent",
+    "fjord": "Deep slate-blue night, misty blue accent",
+    "linen": "Warm off-white, oak accent (light)",
+    "matte": "Soft stone grey, muted clay accent (light)",
+    "sage": "Oat white, dried-eucalyptus green (light)",
     "tokyo": "Tokyo Night Moon, periwinkle and pink",
 }
 
@@ -131,117 +157,10 @@ def palette_css(name):
     return "\n".join(out) + "\n"
 
 
-def glass_edge(name, strength=1.0):
-    """Light catching the rim of a glass pane: a bright hairline on dark themes, white on light."""
-    dark = roles(name)["dark"]
-    return f"rgba(255, 255, 255, {0.10 * strength:.2f})" if dark else f"rgba(255, 255, 255, {0.65 * strength:.2f})"
-
-
-def _rgba(hexc, a):
-    c = _rgb(hexc)
-    return f"rgba({c[0]}, {c[1]}, {c[2]}, {a:.2f})"
-
-
-# ---------------------------------------------------------------- liquid glass overrides
-# Appended after each component's own CSS. Translucent tinted surfaces (Hyprland blurs what's behind
-# them, see glass_hypr), a bright hairline rim, an inner top highlight and soft deep shadows.
-def glass_gtk3(name, part):
-    """waybar / swaync (GTK3 CSS, uses the @define-color names)."""
-    r = roles(name)
-    edge, hi = glass_edge(name), glass_edge(name, 0.6)
-    drop = "rgba(0, 0, 0, 0.35)" if r["dark"] else "rgba(0, 0, 0, 0.12)"
-    if part == "waybar":
-        return (f"window#waybar {{ border-radius: 14px; border: 1px solid {edge}; }}\n"
-                f"#custom-media {{ background-color: alpha(@surface_var, 0.55); border: 1px solid {hi}; }}\n"
-                f"tooltip {{ background: alpha(@surface, 0.80); border: 1px solid {edge}; border-radius: 12px; }}\n")
-    return (  # swaync
-        f".notification {{ border-radius: 18px; border: 1px solid {edge};"
-        f" box-shadow: inset 0 1px {hi}, 0 8px 24px {drop}; }}\n"
-        f".notification.critical {{ border-color: alpha(@error, 0.8); }}\n"
-        f".notification-default-action, .notification-action {{ border-radius: 18px; }}\n"
-        f".notification-action {{ border-radius: 12px; background: alpha(@surface_var, 0.5); border-color: {edge}; }}\n"
-        f".control-center {{ background: alpha(@surface, 0.90); border-radius: 24px; border: 1px solid {edge};"
-        f" box-shadow: inset 0 1px {hi}, 0 14px 40px {drop}; }}\n"
-        f".control-center .notification {{ background-color: alpha(@surface_var, 0.45); box-shadow: none; }}\n"
-        f".widget-mpris .widget-mpris-player {{ border-radius: 18px; background-color: alpha(@surface_var, 0.45);"
-        f" border-color: {edge}; }}\n"
-        f".widget-mpris .widget-mpris-player .mpris-overlay .widget-mpris-album-art {{ border-radius: 12px; }}\n"
-        f".widget-buttons-grid flowboxchild > button {{ background: alpha(@surface_var, 0.42); border-color: {edge};"
-        f" box-shadow: inset 0 1px {hi}; }}\n"
-        f".widget-title > button {{ background: alpha(@surface_var, 0.45); border-color: {edge}; }}\n"
-        f".inline-reply-entry {{ border-radius: 12px; }}\n")
-
-
-def glass_osd(name):
-    edge, hi = glass_edge(name), glass_edge(name, 0.6)
-    r = roles(name)
-    return (f"window#osd {{ background: {_rgba(r['surface'], 0.85)}; border: 1px solid {edge};"
-            f" border-radius: 22px; box-shadow: inset 0 1px {hi}; }}\n"
-            f"window#osd trough {{ border-radius: 999px; background: {_rgba(r['surface_var'], 0.7)}; }}\n"
-            "window#osd progress, window#osd progressbar { border-radius: 999px; }\n")
-
-
-def glass_panels(name):
-    """Bar popups (GTK4: helpers/panels.c via .generated/panels.css, and settings/panels.py)."""
-    r = roles(name)
-    edge, hi = glass_edge(name), glass_edge(name, 0.6)
-    drop = "rgba(0, 0, 0, 0.35)" if r["dark"] else "rgba(0, 0, 0, 0.12)"
-    sv = _rgba(r["surface_var"], 0.42)
-    return (f".panel {{ background: {_rgba(r['surface'], 0.92)}; border: 1px solid {edge}; border-radius: 22px;"
-            f" box-shadow: inset 0 1px {hi}, 0 10px 32px {drop}; }}\n"
-            f".panel .card {{ background: {sv}; border: 1px solid {edge}; border-radius: 14px; }}\n"
-            f".panel button.tile {{ background: {sv}; border: 1px solid {edge}; border-radius: 14px; }}\n"
-            f".panel button.tile:hover {{ background: {_rgba(r['primary'], 0.28)}; }}\n"
-            f".panel .art {{ border-radius: 12px; border-color: {edge}; }}\n"
-            ".panel levelbar trough, .panel levelbar block.filled, .panel scale.timeline trough,"
-            " .panel scale.timeline highlight { border-radius: 999px; }\n"
-            ".panel calendar > grid > label.today, .panel calendar > grid > label:selected { border-radius: 8px; }\n"
-            f".panel .wifi-pw {{ border-radius: 12px; background: {sv}; border-color: {edge}; }}\n")
-
-
-def glass_settings(name):
-    """Settings window (libadwaita): translucent window, frosted sidebar, glass cards."""
-    r = roles(name)
-    edge = glass_edge(name)
-    return (":root {"
-            f" --window-bg-color: {_rgba(r['surface'], 0.94)};"
-            f" --view-bg-color: transparent; --headerbar-bg-color: transparent;"
-            f" --sidebar-bg-color: {_rgba(r['sidebar'], 0.6)};"
-            f" --secondary-sidebar-bg-color: {_rgba(r['sidebar'], 0.45)};"
-            f" --card-bg-color: {_rgba(r['card'], 0.55)};"
-            f" --dialog-bg-color: {_rgba(r['dialog'], 0.92)};"
-            f" --popover-bg-color: {_rgba(r['dialog'], 0.94)}; }}\n"
-            f".boxed-list, .card {{ border: 1px solid {edge}; border-radius: 14px; }}\n"
-            ".preferences row, row.entry { border-radius: 14px; }\n"
-            ".navigation-sidebar > row { border-radius: 10px; }\n"
-            ".keycap { border-radius: 7px; }\n"
-            ".wall { border-radius: 12px; }\n"
-            "searchbar > revealer > box, entry.search { border-radius: 10px; }\n")
-
-
-def glass_rofi(name):
-    """Appended to the rofi theme (rasi): later rules win."""
-    r = roles(name)
-    a = "eb" if r["dark"] else "f0"
-    edge = "#ffffff1a" if r["dark"] else "#ffffffa6"
-    return ("\n/* liquid glass (hyprminimal theme) */\n"
-            f"* {{ surface: {r['surface']}{a}; surface-var: {r['surface_var']}80; }}\n"
-            f"window {{ border-radius: 22px; border-color: {edge}; }}\n"
-            "element { border-radius: 12px; }\n"
-            f"inputbar {{ border-radius: 14px; border-color: {edge}; }}\n"
-            "entry { border-radius: 10px; }\n"
-            "message { border-radius: 12px; }\n")
-
-
-def hypr_lua(name, glass):
-    """Hyprland window colours (+ glass blur) as a Lua chunk, loaded by hypr/layerrules.lua."""
+def hypr_lua(name):
+    """Hyprland window colours as a Lua chunk, loaded by hypr/layerrules.lua."""
     r = roles(name)
     h = lambda k: "rgb(" + r[k].lstrip("#") + ")"
-    blur = ""
-    if glass:
-        blur = ("    decoration = { blur = { enabled = true, size = 8, passes = 3, vibrancy = 0.18,"
-                " noise = 0.015, contrast = 1.0, brightness = 1.0, popups = true, new_optimizations = true,"
-                " ignore_opacity = true } },\n")
     return ("-- generated by hyprminimal-settings (theme: " + r["label"] + "), edit Settings -> General instead\n"
             "hl.config({\n"
             "    general = { col = {\n"
@@ -254,9 +173,10 @@ def hypr_lua(name, glass):
             f"                             locked_active = \"{h('error')}\", locked_inactive = \"{h('surface_var')}\" }},\n"
             f"                     text_color = \"{h('on_primary')}\", text_color_inactive = \"{h('on_surface')}\" }},\n"
             "    },\n"
-            + blur +
+            # the desktop: plain theme colour (helpers/panels.c draws the logo on top), no wallpaper program
+            f"    misc = {{ background_color = \"{h('wall_bg')}\" }},\n"
             "})\n"
-            "return " + ("true" if glass else "false") + "\n")
+            "return true\n")
 
 
 # terminal ANSI colours: one calm set for dark themes, one for light ones

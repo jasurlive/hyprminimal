@@ -3,8 +3,7 @@
 #   hyprminimal start          start hyprminimal (stops a running copy first)
 #   hyprminimal stop           stop hyprminimal
 #   hyprminimal restart        restart hyprminimal (after editing configs)
-#   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server swaybg)
-#   hyprminimal wallpaper PATH show PATH as the wallpaper (used by Settings)
+#   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server)
 #   hyprminimal status         show what is running
 set -uo pipefail
 # never pass a GTK4 preload (Settings runs with libgtk4-layer-shell) on to waybar (GTK3): it crashes at start
@@ -17,15 +16,13 @@ GOOD="$GEN/good"        # last config each component ran on without crashing
 ERR="$RUN/errors"       # ERR/NAME: why a component failed; the bar shows a red pill, Settings a red banner
 export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
 
-COMPONENTS=(waybar swaync swayosd-server swaybg)
-declare -A LOG=([waybar]=waybar [swaync]=swaync [swayosd-server]=swayosd [swaybg]=swaybg)
-declare -A NAME=([waybar]="Bar" [swaync]="Notification centre" [swayosd-server]="Volume/brightness OSD"
-                 [swaybg]="Wallpaper")
+COMPONENTS=(waybar swaync swayosd-server)
+declare -A LOG=([waybar]=waybar [swaync]=swaync [swayosd-server]=swayosd)
+declare -A NAME=([waybar]="Bar" [swaync]="Notification centre" [swayosd-server]="Volume/brightness OSD")
 declare -A CONF=([waybar]="waybar.json waybar.css" [swaync]="swaync.json swaync.css")
 declare -A FIX=([waybar]="Check Settings → Bar, or waybar/config.jsonc and waybar/style.css."
                 [swaync]="Check swaync/config.json and swaync/style.css."
-                [swayosd-server]="Check swayosd/config.toml and swayosd/style.css."
-                [swaybg]="Check that swaybg is installed and the wallpaper file exists (Settings → Wallpaper).")
+                [swayosd-server]="Check swayosd/config.toml and swayosd/style.css.")
 
 # previous log kept as NAME.log.1 so a crash reason survives the restart
 spawn() { local name=$1; shift; [[ -s $RUN/$name.log ]] && mv -f "$RUN/$name.log" "$RUN/$name.log.1"
@@ -82,12 +79,6 @@ start_one() {   # start a single component (not running already)
         "Building swaync/cursor/pointer.c failed (needs gcc and gtk4 headers). Details: $RUN/shim-build.log" ;;
     swayosd-server)
       spawn swayosd swayosd-server --config "$DIR/swayosd/config.toml" --style "$(f=$GEN/swayosd.css; [[ -f $f ]] && echo "$f" || echo "$DIR/swayosd/style.css")" ;;
-    swaybg)   # optional $2: image path (default: the saved wallpaper)
-      local wp=${2:-$(cat "$GEN/wallpaper" 2>/dev/null)} old; old=$(pgrep -x swaybg)
-      if [[ -f $wp ]]; then spawn swaybg swaybg -o '*' -i "$wp" -m fill
-      else spawn swaybg swaybg -o '*' -c "$(cat "$GEN/wall_bg" 2>/dev/null || echo '#222436')"; fi
-      # new one first, then drop the old: no black flash when the wallpaper changes
-      [[ $old ]] && { sleep 0.3; kill $old 2>/dev/null; } ;;
     *) echo "hyprminimal: unknown component $1" >&2; return 2 ;;
   esac
 }
@@ -240,6 +231,7 @@ stop_components() {
   pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"; pkill -f "$DIR/scripts/workspace-watch.py"; pkill -f "$GEN/bin/workspace-watch"
   for c in "${COMPONENTS[@]}"; do stop_one "$c"; done
   pkill -x hyprsunset
+  pkill -x swaybg   # older hyprminimal drew the wallpaper with it; helpers/panels.c draws the desktop now
   [[ -f $RUN/caffeine.pid ]] && kill "$(cat "$RUN/caffeine.pid")" 2>/dev/null; rm -f "$RUN/caffeine.pid"
   sleep 0.3
 }
@@ -260,7 +252,6 @@ start_components() {
   # whenever a notification arrives while ours restarts (undo: systemctl --user unmask swaync.service)
   [[ $(systemctl --user is-enabled swaync.service 2>/dev/null) == masked ]] || systemctl --user mask -q swaync.service
   # swaync first: waybar's notification module calls swaync-client (see start_one)
-  start_one swaybg
   start_one swaync
   start_one waybar
   start_one swayosd-server
@@ -270,8 +261,11 @@ start_components() {
   if [[ -x $GEN/bin/workspace-watch ]]; then spawn workspace-watch "$GEN/bin/workspace-watch"
   else spawn workspace-watch python3 -I "$DIR/scripts/workspace-watch.py"; fi
   [[ ${nl:-} == on ]] && spawn hyprsunset hyprsunset -t "${temp:-4000}"
-  # settings app, started hidden so Super+I / Super+H (and the Wi-Fi list popup) open instantly
-  pgrep -f '[h]yprminimal_settings.py' >/dev/null || spawn settings "$DIR/bin/hyprminimal-settings" --preload
+  # settings app, started hidden so Super+I / Super+H (and the Wi-Fi list popup) open instantly.
+  # Settings → General → Keep Settings ready (.generated/preload) off: cold start on first use instead.
+  local preload=on; read -r preload < "$GEN/preload" 2>/dev/null
+  [[ $preload == off ]] || pgrep -f '^python3 -I [^ ]*/settings/hyprminimal_settings\.py' >/dev/null \
+    || spawn settings "$DIR/bin/hyprminimal-settings" --preload
   # bar popups (calendar, battery, network, system) + clock click strip: a small C program
   if [[ -x $GEN/bin/panels ]]; then
     pgrep -f "^$GEN/bin/panels" >/dev/null || spawn panels "$GEN/bin/panels"
@@ -329,7 +323,7 @@ case ${1:-} in
     gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
       --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
     # wait until it's really gone (up to 3 s), or start_components sees it and doesn't start a new one
-    for _ in $(seq 30); do pgrep -f '[h]yprminimal_settings.py' >/dev/null || break; sleep 0.1; done
+    for _ in $(seq 30); do pgrep -f '^python3 -I [^ ]*/settings/hyprminimal_settings\.py' >/dev/null || break; sleep 0.1; done
     panels_quit                    # rebuilt from helpers/panels.c if it changed, then started again
     rm -rf "$RUN/fallback" "$ERR"
     stop_components; start_components; echo "hyprminimal restarted"
@@ -339,11 +333,6 @@ case ${1:-} in
     c=${2:-}; [[ -n ${LOG[$c]:-} ]] || { echo "usage: hyprminimal respawn ${COMPONENTS[*]}"; exit 2; }
     rm -f "$RUN/fallback/$c"; clear_error "$c"   # new settings: try them (the watchdog falls back if they fail)
     with_lock "$c" restart_one "$c"
-    ;;
-  wallpaper)
-    [[ -e $RUN/active ]] || exit 0
-    [[ -f ${2:-} ]] || { echo "hyprminimal: no such image: ${2:-}" >&2; exit 2; }
-    with_lock swaybg start_one swaybg "$2"
     ;;
   watchdog) watchdog ;;
   status)
