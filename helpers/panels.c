@@ -5,13 +5,15 @@
 // reads /proc and /sys directly, and only shells out for nmcli (network panel) and the hotspot
 // (settings/nm.py), off the UI thread.
 //
-// Also owns the clock click strip on the bar (.generated/clock_zone.json) and the click-outside catcher
-// for rofi popups. Theme: .generated/panels.css (written by `hyprminimal-settings --apply`), reloaded live.
+// Also owns the desktop background (theme colour + Arch logo, replaces a wallpaper program), the clock
+// click strip on the bar (.generated/clock_zone.json) and the click-outside catcher for rofi popups. Theme: .generated/panels.css (written by `hyprminimal-settings --apply`), reloaded live.
 // D-Bus (org.gtk.Actions on dev.hyprminimal.Panels, /dev/hyprminimal/Panels), used by bin/hyprminimal-msg:
-//   panel s       toggle a popup: calendar | battery | network | system
+//   panel s       toggle a popup: calendar | battery | network | system | launcher | session
 //   panel-close   close the open popup (Hyprland, on a click outside it)
 //   catch s       a rofi popup is open (its process name; "" = it closed): outside clicks close it
 //   quit
+// The launcher (Super+R) and session menu live here too: shown, not started, so they open in one frame
+// (rofi took ~100 ms per key press). rofi stays the fallback when this program isn't running.
 // The Wi-Fi network list (control center ›) and the Settings window stay in Python (settings/), on demand.
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
@@ -20,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -176,6 +179,7 @@ struct Panel {
     const char *kind;
     int width;
     gboolean bottom, center;
+    gboolean middle;                 // centred on screen, no anchors (launcher)
     guint interval_ms;               // refresh period while open (0 = never)
     void (*build)(Panel *, GtkWidget *body);
     void (*refresh)(Panel *);
@@ -215,6 +219,8 @@ static void panel_create(Panel *p) {
         gtk_layer_set_namespace(w, "hyprminimal-panel");
         gtk_layer_set_layer(w, GTK_LAYER_SHELL_LAYER_OVERLAY);
         gtk_layer_set_keyboard_mode(w, GTK_LAYER_SHELL_KEYBOARD_MODE_EXCLUSIVE);
+    }
+    if (LS && !p->middle) {   // anchored to no edge = centred by the compositor
         GtkLayerShellEdge edge = p->bottom ? GTK_LAYER_SHELL_EDGE_BOTTOM : GTK_LAYER_SHELL_EDGE_TOP;
         gtk_layer_set_anchor(w, edge, TRUE);
         gtk_layer_set_margin(w, edge, POPUP_TOP);
@@ -1214,8 +1220,529 @@ static Panel sysp = {.kind = "system", .width = 380, .interval_ms = 1000, .build
                      .opened = sys_opened, .closed = sys_closed, .refresh = sys_refresh};
 static GtkWidget *system_panel_win(void) { return sysp.win; }
 
+// --------------------------------------------------------------------------- launcher (Super+R)
+// Numbered app list: apps are numbered A-Z (numbers stay the same between runs), the 5 launched last are
+// pinned on top, newest first. Type to search, a number + Enter launches that app, "rm NAME" / "rm NUMBER"
+// + Enter uninstalls it in a terminal that asks first. The list is scripts/launcher.py's cache, shared with
+// the rofi fallback (helpers/launcher.c), and rebuilt when an applications folder changes (inotify).
+#define KEEP_RECENT 5
+#define LAUNCHER_LINES 8
+
+static gboolean OWN_GSK;   // we set GSK_RENDERER=cairo for ourselves: what we launch must not inherit it
+
+static void new_session(gpointer d) { (void)d; setsid(); }
+
+// an app or command that outlives us: its own session, no stdio, without our GSK_RENDERER
+static void spawn_app(const char *const *argv) {
+    char **env = g_get_environ();
+    if (OWN_GSK) env = g_environ_unsetenv(env, "GSK_RENDERER");
+    g_spawn_async(NULL, (char **)argv, env, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL |
+                  G_SPAWN_STDERR_TO_DEV_NULL, new_session, NULL, NULL, NULL);
+    g_strfreev(env);
+}
+
+// select row i of a menu list and scroll it into view (the keyboard stays in the search field)
+static int menu_select(GtkWidget *list, GtkWidget *scroll, int i, int n) {
+    if (n <= 0) { gtk_list_box_unselect_all(GTK_LIST_BOX(list)); return -1; }
+    i = CLAMP(i, 0, n - 1);
+    GtkListBoxRow *row = gtk_list_box_get_row_at_index(GTK_LIST_BOX(list), i);
+    if (!row) return -1;
+    gtk_list_box_select_row(GTK_LIST_BOX(list), row);
+    graphene_point_t pt;
+    if (scroll && gtk_widget_compute_point(GTK_WIDGET(row), list, &GRAPHENE_POINT_INIT(0, 0), &pt)) {
+        GtkAdjustment *va = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scroll));
+        double h = gtk_widget_get_height(GTK_WIDGET(row)), v = gtk_adjustment_get_value(va),
+               page = gtk_adjustment_get_page_size(va);
+        if (pt.y < v) gtk_adjustment_set_value(va, pt.y);
+        else if (pt.y + h > v + page) gtk_adjustment_set_value(va, pt.y + h - page);
+    }
+    return i;
+}
+
+static int menu_step(int sel, int d, int n, gboolean wrap) {
+    if (n <= 0) return -1;
+    if (sel < 0) return 0;
+    int i = sel + d;
+    if (wrap) return ((i % n) + n) % n;
+    return CLAMP(i, 0, n - 1);
+}
+
+static gboolean all_digits(const char *s) {
+    if (!*s) return FALSE;
+    for (; *s; s++) if (!g_ascii_isdigit(*s)) return FALSE;
+    return TRUE;
+}
+
+typedef struct {
+    char *id, *file, *name, *fold, *num;   // fold: casefolded name for matching; num: "12"
+    int rank;                              // place in the recent list, KEEP_RECENT = not recent
+    GtkWidget *row, *tag;
+} LApp;
+
+static struct {
+    GPtrArray *apps;                       // LApp, A-Z: index + 1 = the app's number
+    GArray *order;                         // int: the apps shown, top to bottom
+    GtkWidget *text, *list, *scroll;
+    int sel, row_h;
+    char *cache, *recent_path, *py;
+    char **recent;                         // app ids, newest first
+    GSubprocess *builder;
+    gboolean again;
+    guint rebuild_timer;
+} L;
+
+static Panel launcherp, sessionp;
+
+static void lapp_free(gpointer d) {
+    LApp *a = d;
+    g_free(a->id); g_free(a->file); g_free(a->name); g_free(a->fold); g_free(a->num);
+    if (a->row) g_object_unref(a->row);
+    g_free(a);
+}
+
+static void launcher_filter(void);
+
+// cache line: id \t desktop-file \t "NAME NUM rm" \t markup \t tail (scripts/launcher.py)
+static void launcher_load(void) {
+    char *text = NULL;
+    if (!g_file_get_contents(L.cache, &text, NULL, NULL)) return;
+    if (L.list) gtk_list_box_remove_all(GTK_LIST_BOX(L.list));
+    g_array_set_size(L.order, 0);
+    g_ptr_array_set_size(L.apps, 0);
+    char **lines = g_strsplit(text, "\n", -1);
+    g_free(text);
+    for (char **l = lines; *l; l++) {
+        char **f = g_strsplit(*l, "\t", 4);
+        char *rm, *sp;
+        if (g_strv_length(f) >= 3 && (rm = strrchr(f[2], ' '))) {
+            *rm = 0;
+            if ((sp = strrchr(f[2], ' '))) {
+                *sp = 0;
+                LApp *a = g_new0(LApp, 1);
+                a->id = g_strdup(f[0]);
+                a->file = g_strdup(f[1]);
+                a->name = g_strdup(f[2]);
+                a->num = g_strdup(sp + 1);
+                a->fold = g_utf8_casefold(f[2], -1);
+                a->rank = KEEP_RECENT;
+                g_ptr_array_add(L.apps, a);
+            }
+        }
+        g_strfreev(f);
+    }
+    g_strfreev(lines);
+    int width = snprintf(NULL, 0, "%u", L.apps->len);
+    for (guint i = 0; i < L.apps->len; i++) {
+        LApp *a = g_ptr_array_index(L.apps, i);
+        GtkWidget *h = HBOX(14, NULL);
+        GtkWidget *num = gtk_label_new(a->num);
+        gtk_label_set_xalign(GTK_LABEL(num), 1);
+        gtk_label_set_width_chars(GTK_LABEL(num), width);
+        gtk_widget_add_css_class(num, "num");
+        GtkWidget *name = lbl(a->name, "name", 0);
+        gtk_widget_set_hexpand(name, TRUE);
+        a->tag = lbl("recent", "tag", 1);
+        gtk_widget_set_visible(a->tag, FALSE);
+        gtk_box_append(GTK_BOX(h), num);
+        gtk_box_append(GTK_BOX(h), name);
+        gtk_box_append(GTK_BOX(h), a->tag);
+        a->row = gtk_list_box_row_new();
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(a->row), h);
+        gtk_widget_set_focusable(a->row, FALSE);   // a click must not take the keyboard from the search field
+        gtk_widget_set_cursor_from_name(a->row, "pointer");
+        g_object_ref_sink(a->row);                 // kept while filtered out of the list
+    }
+    if (current == &launcherp) launcher_filter();
+}
+
+static gboolean mtime_after(const char *path, const struct timespec *t) {
+    struct stat st;
+    return stat(path, &st) == 0 &&
+           (st.st_mtim.tv_sec > t->tv_sec || (st.st_mtim.tv_sec == t->tv_sec && st.st_mtim.tv_nsec > t->tv_nsec));
+}
+
+static GPtrArray *app_dirs(void) {
+    GPtrArray *d = g_ptr_array_new_with_free_func(g_free);
+    g_ptr_array_add(d, g_build_filename(g_get_user_data_dir(), "applications", NULL));
+    for (const char *const *s = g_get_system_data_dirs(); *s; s++)
+        g_ptr_array_add(d, g_build_filename(*s, "applications", NULL));
+    return d;
+}
+
+// cache missing, or older than an applications folder, a .desktop file in one or the builder
+static gboolean launcher_stale(void) {
+    struct stat cs;
+    if (stat(L.cache, &cs) < 0 || cs.st_size == 0) return TRUE;
+    gboolean hit = mtime_after(L.py, &cs.st_mtim);
+    GPtrArray *dirs = app_dirs();
+    for (guint i = 0; i < dirs->len && !hit; i++) {
+        const char *dir = g_ptr_array_index(dirs, i);
+        if (mtime_after(dir, &cs.st_mtim)) { hit = TRUE; break; }
+        GDir *gd = g_dir_open(dir, 0, NULL);
+        if (!gd) continue;
+        for (const char *e; !hit && (e = g_dir_read_name(gd));) {
+            char *f = g_build_filename(dir, e, NULL);
+            hit = mtime_after(f, &cs.st_mtim);
+            g_free(f);
+        }
+        g_dir_close(gd);
+    }
+    g_ptr_array_free(dirs, TRUE);
+    return hit;
+}
+
+static void launcher_rebuild(void);
+
+static void rebuild_done(GObject *src, GAsyncResult *res, gpointer d) {
+    (void)d;
+    gboolean ok = g_subprocess_wait_check_finish(G_SUBPROCESS(src), res, NULL);
+    g_clear_object(&L.builder);
+    if (ok) launcher_load();
+    if (L.again) { L.again = FALSE; launcher_rebuild(); }
+}
+
+// Python + Gio parses .desktop files correctly but costs ~150 ms: run in the background, never on a key press
+static void launcher_rebuild(void) {
+    if (L.builder) { L.again = TRUE; return; }
+    char *dir = g_path_get_dirname(L.cache);
+    g_mkdir_with_parents(dir, 0755);
+    g_free(dir);
+    L.builder = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE, NULL, "python3", "-I", L.py, L.cache, NULL);
+    if (L.builder) g_subprocess_wait_check_async(L.builder, NULL, rebuild_done, NULL);
+}
+
+static gboolean rebuild_later(gpointer d) { (void)d; L.rebuild_timer = 0; launcher_rebuild(); return G_SOURCE_REMOVE; }
+
+static gboolean is_desktop_file(GFile *f) {
+    if (!f) return FALSE;
+    char *n = g_file_get_basename(f);
+    gboolean yes = n && g_str_has_suffix(n, ".desktop");
+    g_free(n);
+    return yes;
+}
+
+static void apps_changed(GFileMonitor *m, GFile *file, GFile *other, GFileMonitorEvent ev, gpointer d) {
+    (void)m; (void)d;
+    if (ev == G_FILE_MONITOR_EVENT_ATTRIBUTE_CHANGED || ev == G_FILE_MONITOR_EVENT_PRE_UNMOUNT) return;
+    if (!is_desktop_file(file) && !is_desktop_file(other)) return;
+    if (L.rebuild_timer) g_source_remove(L.rebuild_timer);
+    L.rebuild_timer = g_timeout_add(1000, rebuild_later, NULL);   // one rebuild per pacman transaction
+}
+
+static void launcher_init(void) {
+    char *cdir = g_build_filename(g_get_user_cache_dir(), "hyprminimal", NULL);
+    L.cache = g_build_filename(cdir, "launcher-apps", NULL);
+    g_free(cdir);
+    const char *xs = getenv("XDG_STATE_HOME");
+    L.recent_path = xs && *xs ? g_build_filename(xs, "hyprminimal", "launcher-recent", NULL)
+                              : g_build_filename(g_get_home_dir(), ".local", "state", "hyprminimal", "launcher-recent", NULL);
+    L.py = g_build_filename(REPO, "scripts", "launcher.py", NULL);
+    L.apps = g_ptr_array_new_with_free_func(lapp_free);
+    L.order = g_array_new(FALSE, FALSE, sizeof(int));
+    GPtrArray *dirs = app_dirs();
+    for (guint i = 0; i < dirs->len; i++) {
+        GFile *f = g_file_new_for_path(g_ptr_array_index(dirs, i));
+        GFileMonitor *mon = g_file_monitor_directory(f, G_FILE_MONITOR_WATCH_MOVES, NULL, NULL);
+        if (mon) g_signal_connect(mon, "changed", G_CALLBACK(apps_changed), NULL);   // lives as long as we do
+        g_object_unref(f);
+    }
+    g_ptr_array_free(dirs, TRUE);
+}
+
+static void read_recent(void) {
+    g_clear_pointer(&L.recent, g_strfreev);
+    char *text = NULL;
+    GPtrArray *ids = g_ptr_array_new();
+    if (g_file_get_contents(L.recent_path, &text, NULL, NULL)) {
+        char **v = g_strsplit_set(text, " \t\n", -1);
+        for (char **s = v; *s; s++) if (**s) g_ptr_array_add(ids, g_strdup(*s));
+        g_strfreev(v);
+    }
+    g_free(text);
+    g_ptr_array_add(ids, NULL);
+    L.recent = (char **)g_ptr_array_free(ids, FALSE);
+    // the first KEEP_RECENT ids still installed are pinned (uninstalled apps drop out)
+    for (guint i = 0; i < L.apps->len; i++) ((LApp *)g_ptr_array_index(L.apps, i))->rank = KEEP_RECENT;
+    int n = 0;
+    for (char **r = L.recent; *r && n < KEEP_RECENT; r++)
+        for (guint i = 0; i < L.apps->len; i++) {
+            LApp *a = g_ptr_array_index(L.apps, i);
+            if (a->rank == KEEP_RECENT && !strcmp(a->id, *r)) { a->rank = n++; break; }
+        }
+    for (guint i = 0; i < L.apps->len; i++) {
+        LApp *a = g_ptr_array_index(L.apps, i);
+        gtk_widget_set_visible(a->tag, a->rank < KEEP_RECENT);
+    }
+}
+
+static void push_recent(const char *id) {
+    GString *s = g_string_new(id);
+    g_string_append_c(s, '\n');
+    int kept = 1;
+    for (char **r = L.recent; r && *r && kept < KEEP_RECENT; r++)
+        if (strcmp(*r, id)) { g_string_append_printf(s, "%s\n", *r); kept++; }
+    char *dir = g_path_get_dirname(L.recent_path);
+    g_mkdir_with_parents(dir, 0755);
+    g_free(dir);
+    g_file_set_contents(L.recent_path, s->str, -1, NULL);   // atomic: temp file + rename
+    g_string_free(s, TRUE);
+}
+
+// one search word against one app: 0 name starts with it (or the exact number), 1 a word in the name
+// starts with it, 2 inside the name, 3 its letters in order ("ffx" finds Firefox), -1 no match
+static int word_tier(const LApp *a, const char *w, int *pos) {
+    *pos = 0;
+    if (all_digits(w)) {
+        if (!strcmp(a->num, w)) return 0;
+        if (g_str_has_prefix(a->num, w)) return 1;
+    }
+    const char *n = a->fold;
+    if (g_str_has_prefix(n, w)) return 0;
+    int inside = -1;
+    for (const char *p = strstr(n, w); p; p = strstr(p + 1, w)) {
+        if (!g_ascii_isalnum(p[-1])) { *pos = p - n; return 1; }
+        if (inside < 0) inside = p - n;
+    }
+    if (inside >= 0) { *pos = inside; return 2; }
+    const char *q = w;
+    int first = -1;
+    for (const char *p = n; *p && *q; p++)
+        if (*p == *q) { if (first < 0) first = p - n; q++; }
+    if (*q) return -1;
+    *pos = first;
+    return 3;
+}
+
+typedef struct { int i, score, rank; } Hit;
+static int hit_cmp(const void *x, const void *y) {
+    const Hit *a = x, *b = y;
+    if (a->score != b->score) return a->score - b->score;
+    if (a->rank != b->rank) return a->rank - b->rank;
+    return a->i - b->i;   // A-Z
+}
+
+// typed text -> search words; "rm NAME" searches NAME
+static char **query_words(void) {
+    char *q = g_utf8_casefold(gtk_editable_get_text(GTK_EDITABLE(L.text)), -1);
+    char *s = g_strstrip(q);
+    if (!strcmp(s, "rm")) s += 2;
+    else if (g_str_has_prefix(s, "rm ")) s += 3;
+    char **v = g_strsplit_set(s, " \t", -1);
+    g_free(q);
+    return v;
+}
+
+static void launcher_filter(void) {
+    if (!L.list) return;
+    char **words = query_words();
+    gtk_list_box_remove_all(GTK_LIST_BOX(L.list));
+    g_array_set_size(L.order, 0);
+    Hit *hits = g_new(Hit, L.apps->len + 1);
+    int nh = 0;
+    for (guint i = 0; i < L.apps->len; i++) {
+        LApp *a = g_ptr_array_index(L.apps, i);
+        int score = 0, k = 0;
+        gboolean ok = TRUE;
+        for (char **w = words; *w && ok; w++) {
+            if (!**w) continue;
+            int pos, tier = word_tier(a, *w, &pos);
+            if (tier < 0) ok = FALSE;
+            else score += tier * 1000 + (k++ ? 0 : MIN(pos, 999));
+        }
+        // empty search: the recent apps first, then A-Z
+        if (ok) hits[nh++] = (Hit){(int)i, score, a->rank};
+    }
+    qsort(hits, nh, sizeof *hits, hit_cmp);
+    for (int h = 0; h < nh; h++) {
+        g_array_append_val(L.order, hits[h].i);
+        gtk_list_box_append(GTK_LIST_BOX(L.list), ((LApp *)g_ptr_array_index(L.apps, hits[h].i))->row);
+    }
+    g_free(hits);
+    g_strfreev(words);
+    gtk_adjustment_set_value(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(L.scroll)), 0);
+    L.sel = menu_select(L.list, NULL, 0, nh);
+}
+
+static void on_query(GtkEditable *e, gpointer d) { (void)e; (void)d; launcher_filter(); }
+
+// Enter: a typed number launches that app, otherwise the selected row; "rm ..." uninstalls instead
+static void launcher_activate(int sel, gboolean clicked) {
+    char *t = g_strstrip(g_strdup(gtk_editable_get_text(GTK_EDITABLE(L.text))));
+    char *rest = t;
+    gboolean remove = FALSE;
+    if (!strcmp(t, "rm") || g_str_has_prefix(t, "rm ")) {
+        remove = TRUE;
+        rest = g_strchug(t + 2);
+    }
+    int pick = -1;
+    if (remove && !*rest) { g_free(t); return; }   // bare "rm": never guess which app to remove
+    if (!clicked && all_digits(rest) && strlen(rest) < 9) {
+        long v = atol(rest);
+        if (v >= 1 && v <= (long)L.apps->len) pick = v - 1;   // "12" + Enter = app number 12
+    }
+    g_free(t);
+    if (pick < 0 && sel >= 0 && sel < (int)L.order->len) pick = g_array_index(L.order, int, sel);
+    if (pick < 0) return;
+    LApp *a = g_ptr_array_index(L.apps, pick);
+    char *id = g_strdup(a->id), *file = g_strdup(a->file), *name = g_strdup(a->name);
+    manager_close();
+    if (remove) {
+        char *title = g_strdup_printf("Remove %s", name), *script = g_build_filename(REPO, "scripts", "remove-app.sh", NULL);
+        const char *argv[] = {"kitty", "--class", "hyprminimal-remove", "--title", title, script, file, name, NULL};
+        spawn_app(argv);
+        g_free(title); g_free(script);
+    } else {
+        const char *argv[] = {"gio", "launch", file, NULL};
+        spawn_app(argv);
+        push_recent(id);
+    }
+    g_free(id); g_free(file); g_free(name);
+}
+
+static void on_app_row(GtkListBox *l, GtkListBoxRow *row, gpointer d) {
+    (void)l; (void)d;
+    launcher_activate(gtk_list_box_row_get_index(row), TRUE);
+}
+
+static gboolean launcher_key(Panel *p, guint kv) {
+    (void)p;
+    int n = L.order->len, s = L.sel;
+    switch (kv) {
+    case GDK_KEY_Down: case GDK_KEY_KP_Down: case GDK_KEY_Tab: s = menu_step(s, 1, n, TRUE); break;
+    case GDK_KEY_Up: case GDK_KEY_KP_Up: case GDK_KEY_ISO_Left_Tab: s = menu_step(s, -1, n, TRUE); break;
+    case GDK_KEY_Page_Down: case GDK_KEY_KP_Page_Down: s = menu_step(s, LAUNCHER_LINES, n, FALSE); break;
+    case GDK_KEY_Page_Up: case GDK_KEY_KP_Page_Up: s = menu_step(s, -LAUNCHER_LINES, n, FALSE); break;
+    case GDK_KEY_Return: case GDK_KEY_KP_Enter: case GDK_KEY_ISO_Enter: launcher_activate(L.sel, FALSE); return TRUE;
+    default: return FALSE;   // typing goes to the search field
+    }
+    L.sel = menu_select(L.list, L.scroll, s, n);
+    return TRUE;
+}
+
+static void launcher_build(Panel *p, GtkWidget *body) {
+    (void)p;
+    gtk_widget_add_css_class(body, "launcher");
+    gtk_box_set_spacing(GTK_BOX(body), 10);
+    GtkWidget *in = HBOX(12, "launcher-input");
+    gtk_box_append(GTK_BOX(in), lbl("\U000F0349", "prompt", 0.5));
+    L.text = gtk_text_new();
+    gtk_widget_set_hexpand(L.text, TRUE);
+    gtk_text_set_placeholder_text(GTK_TEXT(L.text), "Search, type a number, or rm NAME to uninstall");
+    g_signal_connect(L.text, "changed", G_CALLBACK(on_query), NULL);
+    gtk_box_append(GTK_BOX(in), L.text);
+    gtk_box_append(GTK_BOX(body), in);
+    L.list = gtk_list_box_new();
+    gtk_widget_add_css_class(L.list, "menu");
+    gtk_widget_set_focusable(L.list, FALSE);
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(L.list), GTK_SELECTION_SINGLE);
+    g_signal_connect(L.list, "row-activated", G_CALLBACK(on_app_row), NULL);
+    L.scroll = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(L.scroll), GTK_POLICY_NEVER, GTK_POLICY_EXTERNAL);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(L.scroll), L.list);
+    gtk_box_append(GTK_BOX(body), L.scroll);
+    launcher_load();
+    if (launcher_stale()) launcher_rebuild();
+}
+
+static void launcher_opened(Panel *p) {
+    (void)p;
+    read_recent();
+    g_signal_handlers_block_by_func(L.text, on_query, NULL);
+    gtk_editable_set_text(GTK_EDITABLE(L.text), "");
+    g_signal_handlers_unblock_by_func(L.text, on_query, NULL);
+    launcher_filter();
+    // always LAUNCHER_LINES rows tall, so the box never jumps while typing
+    if (L.apps->len) {
+        int mn, nat;
+        GtkWidget *row = ((LApp *)g_ptr_array_index(L.apps, 0))->row;
+        gtk_widget_measure(row, GTK_ORIENTATION_VERTICAL, -1, &mn, &nat, NULL, NULL);
+        if (nat > 0 && nat != L.row_h) {
+            L.row_h = nat;
+            gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(L.scroll), nat * LAUNCHER_LINES);
+            gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(L.scroll), nat * LAUNCHER_LINES);
+        }
+    }
+    gtk_widget_grab_focus(L.text);
+}
+
+static Panel launcherp = {.kind = "launcher", .width = 600, .middle = TRUE, .build = launcher_build,
+                          .opened = launcher_opened, .key = launcher_key};
+
+// --------------------------------------------------------------------------- session menu (Super+Esc)
+// Lock, Lock & Suspend, Reboot, Shut Down: keys 1-4, or arrows + Enter
+static const struct { const char *icon, *label; } SESSION[] = {
+    {"\U000F033E", "Lock"}, {"\U000F03E4", "Lock & Suspend"}, {"\U000F0453", "Reboot"}, {"\U000F0425", "Shut Down"},
+};
+static struct { GtkWidget *list; int sel; } SM;
+
+static void session_run(int i) {
+    manager_close();
+    char *msg = g_build_filename(REPO, "bin", "hyprminimal-msg", NULL);
+    const char *lock[] = {msg, "lock", NULL};
+    const char *suspend[] = {"sh", "-c", "\"$0\" lock & sleep 1; systemctl suspend", msg, NULL};
+    const char *reboot[] = {"systemctl", "reboot", NULL}, *off[] = {"systemctl", "poweroff", NULL};
+    const char *const *cmds[] = {lock, suspend, reboot, off};
+    if (i >= 0 && i < (int)G_N_ELEMENTS(cmds)) spawn_app(cmds[i]);
+    g_free(msg);
+}
+
+static void on_session_row(GtkListBox *l, GtkListBoxRow *row, gpointer d) {
+    (void)l; (void)d;
+    session_run(gtk_list_box_row_get_index(row));
+}
+
+static gboolean session_key(Panel *p, guint kv) {
+    (void)p;
+    int n = G_N_ELEMENTS(SESSION), s = SM.sel;
+    if (kv >= GDK_KEY_1 && kv < GDK_KEY_1 + (guint)n) { session_run(kv - GDK_KEY_1); return TRUE; }
+    if (kv >= GDK_KEY_KP_1 && kv < GDK_KEY_KP_1 + (guint)n) { session_run(kv - GDK_KEY_KP_1); return TRUE; }
+    switch (kv) {
+    case GDK_KEY_Down: case GDK_KEY_KP_Down: case GDK_KEY_Tab: s = menu_step(s, 1, n, TRUE); break;
+    case GDK_KEY_Up: case GDK_KEY_KP_Up: case GDK_KEY_ISO_Left_Tab: s = menu_step(s, -1, n, TRUE); break;
+    case GDK_KEY_Return: case GDK_KEY_KP_Enter: case GDK_KEY_ISO_Enter: case GDK_KEY_space:
+        session_run(SM.sel); return TRUE;
+    default: return FALSE;
+    }
+    SM.sel = menu_select(SM.list, NULL, s, n);
+    return TRUE;
+}
+
+static void session_build(Panel *p, GtkWidget *body) {
+    (void)p;
+    gtk_widget_add_css_class(body, "session");
+    SM.list = gtk_list_box_new();
+    gtk_widget_add_css_class(SM.list, "menu");
+    gtk_widget_set_focusable(SM.list, FALSE);
+    g_signal_connect(SM.list, "row-activated", G_CALLBACK(on_session_row), NULL);
+    for (size_t i = 0; i < G_N_ELEMENTS(SESSION); i++) {
+        GtkWidget *h = HBOX(12, NULL);
+        gtk_box_append(GTK_BOX(h), lbl(SESSION[i].icon, "glyph", 0.5));
+        GtkWidget *name = lbl(SESSION[i].label, "name", 0);
+        gtk_widget_set_hexpand(name, TRUE);
+        gtk_box_append(GTK_BOX(h), name);
+        char key[4];
+        snprintf(key, sizeof key, "%zu", i + 1);
+        gtk_box_append(GTK_BOX(h), lbl(key, "num", 1));
+        GtkWidget *row = gtk_list_box_row_new();
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), h);
+        gtk_widget_set_focusable(row, FALSE);
+        gtk_widget_set_cursor_from_name(row, "pointer");
+        if (i == G_N_ELEMENTS(SESSION) - 1) gtk_widget_add_css_class(row, "urgent");
+        gtk_list_box_append(GTK_LIST_BOX(SM.list), row);
+    }
+    gtk_box_append(GTK_BOX(body), SM.list);
+}
+
+static void session_opened(Panel *p) {
+    (void)p;
+    SM.sel = menu_select(SM.list, NULL, 0, G_N_ELEMENTS(SESSION));
+}
+
+static Panel sessionp = {.kind = "session", .width = 260, .build = session_build, .opened = session_opened,
+                         .key = session_key};
+
 // --------------------------------------------------------------------------- manager
-static Panel *PANELS[] = {&calendar, &battery, &network, &sysp};
+static Panel *PANELS[] = {&calendar, &battery, &network, &sysp, &launcherp, &sessionp};
 static GtkWidget *catcher;
 static char *external;                  // a popup run as its own program (rofi): closed with pkill
 
@@ -1386,6 +1913,80 @@ static void reload_zones(void) {
     }
 }
 
+// --------------------------------------------------------------------------- desktop background
+// No wallpaper program: one BACKGROUND layer per monitor with the theme colour, the Arch logo
+// (.generated/arch-logo.png) and a wordmark (styled in .generated/panels.css); both follow the theme live. Drawn once, nothing ticks.
+// Hyprland paints the same colour itself (misc.background_color, .generated/hypr-theme.lua) whenever we're
+// not running, so a restart never flashes black.
+static GPtrArray *bgs;
+
+// .generated/desktop (Settings → General → Desktop): "logo=on|off" and "name=TEXT" lines
+static void desktop_conf(gboolean *logo, char **name) {
+    char *path = g_build_filename(GEN, "desktop", NULL), *text = NULL;
+    *logo = TRUE;
+    *name = g_strdup("hyprminimal");
+    if (g_file_get_contents(path, &text, NULL, NULL)) {
+        char **lines = g_strsplit(text, "\n", -1);
+        for (char **l = lines; *l; l++) {
+            if (g_str_has_prefix(*l, "logo=")) *logo = strcmp(*l + 5, "off") != 0;
+            else if (g_str_has_prefix(*l, "name=")) { g_free(*name); *name = g_strdup(*l + 5); }
+        }
+        g_strfreev(lines);
+    }
+    g_free(text);
+    g_free(path);
+}
+
+static void reload_backgrounds(void) {
+    if (!LS) return;
+    gboolean show_logo;
+    char *name;
+    desktop_conf(&show_logo, &name);
+    if (!bgs) bgs = g_ptr_array_new_with_free_func((GDestroyNotify)gtk_window_destroy);
+    g_ptr_array_set_size(bgs, 0);
+    GListModel *ms = gdk_display_get_monitors(gdk_display_get_default());
+    for (guint i = 0; i < g_list_model_get_n_items(ms); i++) {
+        GdkMonitor *mon = g_list_model_get_item(ms, i);
+        GtkWindow *w = GTK_WINDOW(gtk_window_new());
+        gtk_window_set_application(w, app);
+        gtk_window_set_decorated(w, FALSE);
+        gtk_widget_add_css_class(GTK_WIDGET(w), "hyprminimal-background");
+        gtk_layer_init_for_window(w);
+        gtk_layer_set_namespace(w, "hyprminimal-background");
+        gtk_layer_set_layer(w, GTK_LAYER_SHELL_LAYER_BACKGROUND);
+        gtk_layer_set_monitor(w, mon);
+        gtk_layer_set_exclusive_zone(w, -1);
+        gtk_layer_set_keyboard_mode(w, GTK_LAYER_SHELL_KEYBOARD_MODE_NONE);
+        for (int e = 0; e < GTK_LAYER_SHELL_EDGE_ENTRY_NUMBER; e++) gtk_layer_set_anchor(w, e, TRUE);
+        GtkWidget *v = VBOX(0, "bg-mark");
+        gtk_widget_set_halign(v, GTK_ALIGN_CENTER);
+        gtk_widget_set_valign(v, GTK_ALIGN_CENTER);
+        gtk_widget_set_can_target(v, FALSE);
+        // logo: .generated/arch-logo.png in the theme colour (hyprminimal-settings draws it at 2x: shown at
+        // half size it stays sharp on scaled screens); missing (never rendered yet) = just the wordmark
+        char *png = g_build_filename(GEN, "arch-logo.png", NULL);
+        GdkTexture *tex = show_logo ? gdk_texture_new_from_filename(png, NULL) : NULL;
+        if (tex) {
+            GtkWidget *logo = gtk_image_new_from_paintable(GDK_PAINTABLE(tex));   // square: one size
+            gtk_widget_add_css_class(logo, "bg-logo");
+            gtk_image_set_pixel_size(GTK_IMAGE(logo), gdk_texture_get_width(tex) / 2);
+            gtk_box_append(GTK_BOX(v), logo);
+            g_object_unref(tex);
+        }
+        g_free(png);
+        if (*name) {
+            GtkWidget *word = lbl(name, "bg-word", 0.5);
+            gtk_label_set_ellipsize(GTK_LABEL(word), PANGO_ELLIPSIZE_NONE);   // centred, nothing to cut
+            gtk_box_append(GTK_BOX(v), word);
+        }
+        gtk_window_set_child(w, v);
+        gtk_window_present(w);
+        g_ptr_array_add(bgs, w);
+        g_object_unref(mon);
+    }
+    g_free(name);
+}
+
 // --------------------------------------------------------------------------- theme
 static GtkCssProvider *css;
 
@@ -1414,7 +2015,8 @@ static void load_css(void) {
     g_free(tf);
 }
 
-static guint css_timer, zone_timer;
+static guint css_timer, zone_timer, bg_timer;
+static gboolean bgs_later(gpointer d) { (void)d; bg_timer = 0; reload_backgrounds(); return G_SOURCE_REMOVE; }
 static gboolean css_later(gpointer d) { (void)d; css_timer = 0; load_css(); return G_SOURCE_REMOVE; }
 static gboolean zones_later(gpointer d) { (void)d; zone_timer = 0; reload_zones(); return G_SOURCE_REMOVE; }
 
@@ -1427,6 +2029,9 @@ static void gen_changed(GFileMonitor *m, GFile *file, GFile *other, GFileMonitor
     if (!strcmp(name, "panels.css") || !strcmp(name, "theme")) {
         if (css_timer) g_source_remove(css_timer);
         css_timer = g_timeout_add(150, css_later, NULL);
+    } else if (!strcmp(name, "arch-logo.png") || !strcmp(name, "desktop")) {   // theme colour, name, logo
+        if (bg_timer) g_source_remove(bg_timer);
+        bg_timer = g_timeout_add(150, bgs_later, NULL);
     } else if (!strcmp(name, "clock_zone.json")) {
         if (zone_timer) g_source_remove(zone_timer);
         zone_timer = g_timeout_add(600, zones_later, NULL);   // after waybar has re-laid out
@@ -1439,6 +2044,8 @@ static void monitors_changed(GListModel *l, guint pos, guint rem, guint add, gpo
     if (current) manager_close();
     if (zone_timer) g_source_remove(zone_timer);
     zone_timer = g_timeout_add(300, zones_later, NULL);
+    if (bg_timer) g_source_remove(bg_timer);
+    bg_timer = g_timeout_add(300, bgs_later, NULL);
 }
 
 // --------------------------------------------------------------------------- application
@@ -1455,6 +2062,7 @@ static void startup(GApplication *a, gpointer d) {
     gtk_style_context_add_provider_for_display(gdk_display_get_default(), GTK_STYLE_PROVIDER(css),
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
     load_css();
+    launcher_init();
     static const GActionEntry acts[] = {
         {"panel", act_panel, "s", NULL, NULL, {0}}, {"panel-close", act_close, NULL, NULL, NULL, {0}},
         {"catch", act_catch, "s", NULL, NULL, {0}}, {"quit", act_quit, NULL, NULL, NULL, {0}},
@@ -1462,6 +2070,7 @@ static void startup(GApplication *a, gpointer d) {
     g_action_map_add_action_entries(G_ACTION_MAP(a), acts, G_N_ELEMENTS(acts), NULL);
     for (size_t i = 0; i < G_N_ELEMENTS(PANELS); i++) panel_create(PANELS[i]);   // first click is instant
     reload_zones();
+    reload_backgrounds();
     g_signal_connect(gdk_display_get_monitors(gdk_display_get_default()), "items-changed",
                      G_CALLBACK(monitors_changed), NULL);
     GFile *gen = g_file_new_for_path(GEN);
@@ -1493,6 +2102,7 @@ int main(int argc, char **argv) {
     GEN = g_build_filename(REPO, ".generated", NULL);
     // software rendering: these popups are small and mostly still, and the GPU renderers map the whole
     // Vulkan/GL driver stack (~165 MB RSS vs ~75 MB). GSK_RENDERER in the environment still wins.
+    OWN_GSK = !getenv("GSK_RENDERER");   // then apps we launch must not inherit ours
     g_setenv("GSK_RENDERER", "cairo", FALSE);
     app = gtk_application_new("dev.hyprminimal.Panels", G_APPLICATION_HANDLES_COMMAND_LINE);
     g_signal_connect(app, "startup", G_CALLBACK(startup), NULL);

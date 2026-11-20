@@ -2,18 +2,18 @@
 """hyprminimal settings: one place to control the hyprminimal shell and your Hyprland keybinds.
 
     hyprminimal-settings                 open the settings window
-    hyprminimal-settings --page keybinds open on a page (general, bar, wallpaper, notifications,
+    hyprminimal-settings --page keybinds open on a page (general, bar, notifications,
                                       lock, startup, nightlight, keybinds, system, about);
                                       without it, the page you had open last
     hyprminimal-settings --apply         regenerate configs from settings.json (no window)
 """
 import copy
-import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -32,9 +32,9 @@ ERRORS = RUN / "errors"   # NAME: why that part failed (written by bin/hyprminim
 # (waybar is GTK3 and crashes when a GTK4 library is preloaded into it)
 os.environ.pop("LD_PRELOAD", None)
 # Settings page -> the component whose failure is shown on it (red banner)
-PAGE_COMPONENT = {"bar": "waybar", "notifications": "swaync", "wallpaper": "swaybg",
+PAGE_COMPONENT = {"bar": "waybar", "notifications": "swaync",
                   "general": "settings", "system": "swayosd-server"}
-COMPONENT_NAME = {"waybar": "Bar", "swaync": "Notifications", "swaybg": "Wallpaper",
+COMPONENT_NAME = {"waybar": "Bar", "swaync": "Notifications",
                   "settings": "Settings", "swayosd-server": "Volume/brightness OSD"}
 
 
@@ -62,15 +62,18 @@ HOME = Path.home()
 HYPR = HOME / ".config/hypr"
 KEYBIND_LUA = HYPR / "keybind.lua"
 BACKUPS = HYPR / ".pre-hyprminimal-backup"
-THUMBS = HOME / ".cache/hyprminimal/thumbs-v2"   # v1 used a per-run hash and never hit the cache
 UI_STATE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "hyprminimal" / "settings-window.json"
 IDLE_QUIT_SECONDS = 600                       # hidden window stays resident this long for instant reopen
 
 # --------------------------------------------------------------------------- settings
 DEFAULTS = {
-    "general": {"font": "Noto Sans", "theme": themes.DEFAULT, "glass": True},
+    "general": {"font": "Noto Sans", "theme": themes.DEFAULT,
+                # Settings starts hidden at login so Super+I opens instantly; off = cold start on demand
+                "preload": True},
+    # desktop background (helpers/panels.c): the name under the logo ("" = no text), logo on/off
+    "desktop": {"name": "hyprminimal", "logo": True},
     "bar": {
-        "position": "top", "height": 45, "opacity": 0.30,
+        "position": "top", "height": 45,
         "font_size": 16, "icon_size": 20, "clock_size": 18, "font_weight": 500,   # one type scale
         "clock_24h": True,
         "widgets": {
@@ -79,14 +82,7 @@ DEFAULTS = {
             "volume": False, "tray": False, "battery": True, "network_speed": True,
         },
     },
-    "wallpaper": {
-        "directory": str(HOME / "Pictures/Wallpapers"),
-        "path": str(HOME / "Pictures/Wallpapers/hyprminimal.png"),   # made by install.sh
-    },
-    "notifications": {"position": "top-right", "timeout": 3, "opacity": 0.70},
-    "lock": {
-        "wallpaper": str(HOME / "Pictures/Wallpapers/hyprminimal.png"),
-    },
+    "notifications": {"position": "top-right", "timeout": 3},
     "nightlight": {"enabled": False, "temperature": 4000},
     # run once per login by `hyprminimal start` (see .generated/startup): [{"command": str, "enabled": bool}]
     "startup": {"commands": []},
@@ -180,6 +176,36 @@ def running(proc):
     return subprocess.run(["pgrep", "-x", proc], capture_output=True).returncode == 0
 
 
+# Settings hidden while "Keep Settings ready" is on: the window stays mapped, parked on this special workspace
+# nothing ever shows. Bringing it back is a move (~2 ms), not a remap + first frame (~80 ms), and a parked
+# window gets no frame callbacks, so it costs nothing. hypr/layerrules.lua maps the preloaded window here.
+PARK = "special:hyprminimal-settings"
+PARK_TITLE = "hyprminimal settings (parked)"
+
+
+def hypr(cmd):
+    """One Hyprland IPC request over its socket (what hyprctl does, without starting a process)."""
+    path = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "hypr" / os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "") / ".socket.sock"
+    try:
+        with socket.socket(socket.AF_UNIX) as s:
+            s.settimeout(1)
+            s.connect(str(path))
+            s.sendall(cmd.encode())
+            out = b""
+            while (b := s.recv(65536)):
+                out += b
+        return out.decode(errors="replace")
+    except OSError:
+        return ""
+
+
+def hypr_json(cmd):
+    try:
+        return json.loads(hypr("j/" + cmd))
+    except ValueError:
+        return None
+
+
 def sh(*cmd, detach=False):
     if detach:
         subprocess.Popen(list(cmd), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -243,10 +269,130 @@ def fixed_widths_css(font, T, I, W):
     tnum = lambda s: f"<span font_features='tnum'>{s}</span>"
     net = max(text_px(icon("\U000f0120") + tnum(v), font, T, W) for v in ("888.8 MB/s", "888.8 kB/s", "888 B/s"))
     title = "o" * 13 + "…"                      # media.sh cuts titles to 14 characters (typical letters)
-    media = max(text_px(icon("\U000f03e4") + title, font, T, W), text_px(icon("\U000f075b") + "Nothing Playi…", font, T, W))
+    media = max(text_px(title, font, T, W), text_px("Nothing Playi…", font, T, W))
+    w, _h, _d, _g = eq_geometry(I)
+    # the equalizer image sits in the left padding (background-image), the title is the label
     return (f'#custom-net {{ min-width: {net + 2}px; font-feature-settings: "tnum"; }}\n'
-            f'#custom-media {{ min-width: {media + 2}px; }}\n'
-            f'#custom-media.playing {{ min-width: {media + 2 - 50}px; }}\n')   # its padding is 50px wider
+            f'#custom-media {{ min-width: {media + 2}px; padding-left: {14 + w + 8}px;'
+            f' background-image: url("{GEN}/media-paused.png"); background-repeat: no-repeat;'
+            f' background-position: 14px center; background-size: {w}px auto; }}\n'
+            + "".join(f'#custom-media.playing.f{i} {{ background-image: url("{GEN}/media-playing-{i}.png"); }}\n'
+                      for i in range(len(EQ_FRAMES))))
+
+
+# dots per column, bottom up. scripts/media.sh steps through these frames (class f0, f1, …) a few times a
+# second while something plays: every column moves on every frame, never flat. Paused: no frames, no timer.
+EQ_FRAMES = [[3, 1, 4, 2, 3], [2, 3, 2, 4, 1], [4, 2, 3, 1, 2], [1, 4, 1, 3, 4]]
+EQ_ROWS = 4
+
+
+def eq_geometry(icon_px):
+    """Square-dot equalizer sized to the bar's icon size, in whole pixels (crisp, no scaling)."""
+    d = max(2, round(icon_px * 0.16))   # dot side
+    g = max(1, d // 2)                  # gap
+    n = len(EQ_FRAMES[0])
+    return n * d + (n - 1) * g, EQ_ROWS * d + (EQ_ROWS - 1) * g, d, g
+
+
+def arch_logo(th, px=300):
+    """The desktop's Arch logo as a PNG (.generated/arch-logo.png, shown by helpers/panels.c at half size,
+    so it stays sharp on scaled screens). Drawn from the Symbols Nerd Font glyph, minus the glyph's small
+    trademark sign; one solid colour: the accent blended into the background."""
+    import array
+    import io
+    import cairo
+    import gi
+    gi.require_version("Pango", "1.0")
+    gi.require_version("PangoCairo", "1.0")
+    from gi.repository import Pango, PangoCairo
+    r = themes.roles(th)
+    col = themes.mix(r["primary"], r["wall_bg"], 0.45)
+    w = h = px + px // 4
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, w, h)
+    cr = cairo.Context(surf)
+    lay = PangoCairo.create_layout(cr)
+    fd = Pango.FontDescription.from_string("Symbols Nerd Font")
+    fd.set_absolute_size(px * Pango.SCALE)
+    lay.set_font_description(fd)
+    lay.set_text("\uf303", -1)
+    ink, _log = lay.get_pixel_extents()
+    cr.move_to(-ink.x + (w - ink.width) // 2, -ink.y + (h - ink.height) // 2)
+    cr.set_source_rgb(*(int(col[i:i + 2], 16) / 255 for i in (1, 3, 5)))
+    PangoCairo.show_layout(cr, lay)
+    surf.flush()
+    # keep the logo's big connected shapes, drop small separate bits (the "TM" sign)
+    stride, buf = surf.get_stride(), surf.get_data()
+    on = bytearray(1 if buf[y * stride + x * 4 + 3] > 40 else 0 for y in range(h) for x in range(w))
+    seen, parts = bytearray(w * h), []
+    for start in range(w * h):
+        if not on[start] or seen[start]:
+            continue
+        stack, comp = [start], array.array("i")
+        seen[start] = 1
+        while stack:
+            i = stack.pop()
+            comp.append(i)
+            x, y = i % w, i // w
+            for j in (i - 1 if x else -1, i + 1 if x < w - 1 else -1, i - w if y else -1, i + w if y < h - 1 else -1):
+                if j >= 0 and on[j] and not seen[j]:
+                    seen[j] = 1
+                    stack.append(j)
+        parts.append(comp)
+    biggest = max((len(c) for c in parts), default=0)
+    for comp in parts:
+        if len(comp) < biggest * 0.05:
+            for i in comp:   # also clears the soft edge pixels around it
+                x, y = i % w, i // w
+                for yy in range(max(0, y - 2), min(h, y + 3)):
+                    for xx in range(max(0, x - 2), min(w, x + 3)):
+                        o = yy * stride + xx * 4
+                        buf[o:o + 4] = b"\0\0\0\0"
+    surf.mark_dirty()
+    out = io.BytesIO()
+    surf.write_to_png(out)
+    data, path = out.getvalue(), GEN / "arch-logo.png"
+    try:
+        if path.read_bytes() == data:
+            return
+    except OSError:
+        pass
+    path.write_bytes(data)
+
+
+def write_png(path, w, h, px):
+    """Tiny RGBA PNG writer (no image library): px(x, y) -> (r, g, b, a)."""
+    import struct
+    import zlib
+    raw = b"".join(b"\0" + b"".join(bytes(px(x, y)) for x in range(w)) for y in range(h))
+    chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
+    data = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+    try:
+        if path.read_bytes() == data:
+            return
+    except OSError:
+        pass
+    path.write_bytes(data)
+
+
+def media_icons(th, icon_px=None):
+    """The media capsule's icons: equalizer frames of square dots in the accent colour while playing
+    (media-playing-N.png), one flat row of dots in the muted text colour while paused (media-paused.png)."""
+    if icon_px is None:
+        icon_px = int(load_settings()["bar"]["icon_size"])
+    r = themes.roles(th)
+    w, h, d, g = eq_geometry(icon_px)
+    icons = [(f"playing-{i}", f, r["primary"]) for i, f in enumerate(EQ_FRAMES)]
+    icons.append(("paused", [1] * len(EQ_FRAMES[0]), r["on_surface_var"]))
+    for name, heights, col in icons:
+        c = tuple(int(col.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
+
+        def px(x, y, heights=heights, c=c):
+            col_i, row_i = divmod(x, d + g)[0], divmod(h - 1 - y, d + g)[0]   # rows count from the bottom
+            if x % (d + g) >= d or (h - 1 - y) % (d + g) >= d:
+                return (0, 0, 0, 0)                                           # gap
+            return c if row_i < heights[col_i] else (0, 0, 0, 0)
+        write_png(GEN / f"media-{name}.png", w, h, px)
 
 
 def clock_zone(b, font, T, I, C, W):
@@ -307,11 +453,11 @@ def render(s):
     font = s["general"]["font"].replace('"', "")
     T, I, C, W = int(b["font_size"]), int(b["icon_size"]), int(b["clock_size"]), int(b["font_weight"])
     g = s["general"]
-    th, glass = themes.get(g.get("theme")), bool(g.get("glass", True))
+    th = themes.get(g.get("theme"))
     (GEN / "waybar.css").write_text(
         themes.palette_css(th) + themed_css(DIR / "waybar/style.css", th) +
         f'* {{ font-family: "{font}", "Symbols Nerd Font"; font-size: {T}px; font-weight: {W}; }}\n'
-        f'window#waybar {{ background: alpha(@surface, {float(b["opacity"]):.2f}); }}\n'
+        'window#waybar { background: @surface; }\n'
         f'#clock {{ font-size: {C}px; font-weight: {W}; }}\n'
         f'#custom-notification {{ font-size: {I}px; }}\n'
         f'#workspaces button {{ font-size: {round(T * 0.8)}px; font-weight: {W}; min-width: {round(I * 1.2)}px; '
@@ -319,8 +465,7 @@ def render(s):
         f'#workspaces button.active {{ min-width: {round(I * 2.6)}px; }}\n'
         f'#custom-media {{ border-radius: {round(I * 0.85)}px; }}\n'
         + battery_css(int(b["height"]), I, W)
-        + fixed_widths_css(font, T, I, W)
-        + (themes.glass_gtk3(th, "waybar") if glass else ""))
+        + fixed_widths_css(font, T, I, W))
     clock_zone(b, font, T, I, C, W)
     # scripts that print icons inline (media, network) size them relative to the text
     (GEN / "icon_scale").write_text(f"{round(100 * I / T)}\n")
@@ -336,16 +481,11 @@ def render(s):
     (GEN / "swaync.css").write_text(
         themes.palette_css(th) + themed_css(DIR / "swaync/style.css", th) +
         f'* {{ font-family: "{font}", "Symbols Nerd Font"; }}\n'
-        f'.notification {{ background-color: alpha(@surface, {float(n["opacity"]):.2f}); }}\n'
-        f'.floating-notifications .notification:not(.critical) {{ animation-duration: {int(n["timeout"])}s; }}\n'
-        + (themes.glass_gtk3(th, "swaync") + f'.notification {{ background-color: alpha(@surface, '
-           f'{max(float(n["opacity"]), 0.88):.2f}); }}\n' if glass else ""))
+        '.notification { background-color: @surface; }\n'
+        f'.floating-notifications .notification:not(.critical) {{ animation-duration: {int(n["timeout"])}s; }}\n')
 
     # hyprlock
-    lk = s["lock"]
     lock = (DIR / "hyprlock/hyprlock.conf").read_text(encoding="utf-8")
-    lock = re.sub(r"(background \{.*?\n\s*path = ).*?\n", lambda m: m.group(1) + lk["wallpaper"] + "\n",
-                  lock, count=1, flags=re.S)
     lock = lock.replace("$font     = Noto Sans", f"$font     = {font}")
     lock = themes.recolor(lock, th)
     (GEN / "hyprlock.conf").write_text(lock, encoding="utf-8")
@@ -364,14 +504,20 @@ def render(s):
         " ".join(c["command"].split("\n")).strip() + "\n" for c in s["startup"]["commands"]
         if c.get("enabled", True) and c.get("command", "").strip()))
 
-    render_theme(th, glass)
+    render_theme(th, I)
     # bar popups (helpers/panels.c watches this file and restyles live; the Wi-Fi list reads the template)
     write_if_changed(GEN / "panels.css", themes.recolor((DIR / "settings/panels.css").read_text(encoding="utf-8"), th)
-                     + (themes.glass_panels(th) if glass else "")
-                     + f'window.hyprminimal-panel {{ font-family: "{font}", "Symbols Nerd Font"; }}\n')
+                     + f'window.hyprminimal-panel, window.hyprminimal-background {{ font-family: "{font}", "Symbols Nerd Font"; }}\n')
+
+    # desktop background: helpers/panels.c watches this file and redraws the desktop when it changes
+    d = s["desktop"]
+    if d.get("logo", True):
+        arch_logo(th)
+    name = " ".join(str(d.get("name", "")).split())          # one line
+    write_if_changed(GEN / "desktop", f"logo={'on' if d.get('logo', True) else 'off'}\nname={name}\n")
 
     # simple values the shell scripts read
-    (GEN / "wallpaper").write_text(s["wallpaper"]["path"] + "\n")
+    (GEN / "preload").write_text("on\n" if s["general"].get("preload", True) else "off\n")   # bin/hyprminimal
     (GEN / "nightlight").write_text(
         f"{'on' if s['nightlight']['enabled'] else 'off'} {int(s['nightlight']['temperature'])}\n")
 
@@ -394,22 +540,19 @@ def themed_css(path, theme):
     return themes.recolor(re.sub(r'^@import "\.\./colors/palette\.css";\n', "", text, flags=re.M), theme) + "\n"
 
 
-def render_theme(th, glass):
+def render_theme(th, icon_px=None):
     """Everything else that follows the theme: OSD, launcher, terminal, Hyprland borders."""
-    (GEN / "theme").write_text(f"{th} {'glass' if glass else 'solid'} {'dark' if themes.roles(th)['dark'] else 'light'}\n")
+    (GEN / "theme").write_text(f"{th} {'dark' if themes.roles(th)['dark'] else 'light'}\n")
     (GEN / "palette.css").write_text(themes.palette_css(th))
-    (GEN / "swayosd.css").write_text(themed_css(DIR / "swayosd/style.css", th)
-                                     + (themes.glass_osd(th) if glass else ""))
+    (GEN / "swayosd.css").write_text(themed_css(DIR / "swayosd/style.css", th))
     rofi = GEN / "rofi"
     rofi.mkdir(exist_ok=True)
     for f in ("theme.rasi", "launcher.rasi", "menu.rasi"):
         text = themes.recolor((DIR / "rofi" / f).read_text(encoding="utf-8"), th)
-        if f == "theme.rasi" and glass:
-            text += themes.glass_rofi(th)
         (rofi / f).write_text(text, encoding="utf-8")
     (GEN / "kitty-colors.conf").write_text(themes.kitty_conf(th))
-    (GEN / "hypr-theme.lua").write_text(themes.hypr_lua(th, glass))
-    (GEN / "wall_bg").write_text(themes.roles(th)["wall_bg"] + "\n")
+    (GEN / "hypr-theme.lua").write_text(themes.hypr_lua(th))
+    media_icons(th, icon_px)
 
 
 def apply_theme(s):
@@ -437,11 +580,6 @@ def reload_notifications():
         sh("swaync-client", "-R")
         sh("swaync-client", "-rs")
 
-
-
-def apply_wallpaper(path):
-    if hyprminimal_active():
-        sh(str(DIR / "bin" / "hyprminimal"), "wallpaper", path, detach=True)
 
 
 def apply_nightlight(s):
@@ -686,7 +824,7 @@ def run_gui(start_page):
     import gi
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
-    from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango
+    from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
     CSS = """
     :root {
@@ -722,9 +860,6 @@ def run_gui(start_page):
     .keycap.plus { background: none; border: none; color: #4b517a; padding: 0 1px; }
     .conflict { color: #f7768e; font-weight: 700; }
     .section-label { color: #d7729f; font-weight: 800; font-size: 0.85em; letter-spacing: 1px; }
-    .wall { border: 2px solid transparent; border-radius: 4px; padding: 2px; }
-    .wall.current { border-color: #d7729f; }
-    .wall:hover { border-color: #7a88cf; }
     .recording { background: #d7729f; color: #1f2335; }
     .banner-off { background: #2c314a; }
     .swatches { border-radius: 6px; border: 1px solid alpha(currentColor, 0.15); }
@@ -734,6 +869,10 @@ def run_gui(start_page):
         def __init__(self, app):
             super().__init__(application=app, title="hyprminimal settings")
             self.set_default_size(1120, 760)
+            # undecorated: GTK adds no 12px resize/shadow border around it. With one, the first frame after
+            # a re-show (before Hyprland's tiled-state configure) was drawn 12px off, then snapped into place.
+            # Hyprland draws the border and rounding anyway, and there are no title buttons to lose.
+            self.set_decorated(False)
             # no close button: Esc (or Super+Q in Hyprland) closes. Capture phase, because a focused
             # SearchEntry eats Esc even when empty (Keybinds focuses its search on open). An open dialog
             # or a search box with text still gets the Esc instead.
@@ -787,15 +926,14 @@ def run_gui(start_page):
             self.pages = {}
             self.builders = {}
             for pid, label, icon, builder, words in [
-                ("general", "General", "applications-system-symbolic", self.page_general, "font theme"),
+                ("general", "General", "applications-system-symbolic", self.page_general,
+                 "font theme performance preload cold start ready memory desktop background logo name arch"),
                 ("bar", "Bar", "view-app-grid-symbolic", self.page_bar,
-                 "bar widgets clock date height opacity position cpu ram wifi bluetooth volume tray battery media"),
-                ("wallpaper", "Wallpaper", "preferences-desktop-wallpaper-symbolic", self.page_wallpaper,
-                 "wallpaper background"),
+                 "bar widgets clock date height position cpu ram wifi bluetooth volume tray battery media"),
                 ("notifications", "Notifications", "preferences-system-notifications-symbolic",
                  self.page_notifications, "notifications dnd do not disturb timeout popup"),
                 ("lock", "Lock Screen", "system-lock-screen-symbolic", self.page_lock,
-                 "lock screen wallpaper"),
+                 "lock screen"),
                 ("startup", "Startup", "system-run-symbolic", self.page_startup,
                  "startup autostart autorun login boot launch apps commands scripts exec"),
                 ("network", "Network", "network-workgroup-symbolic", self.page_network,
@@ -916,6 +1054,8 @@ def run_gui(start_page):
             save_settings(self.s)
             if what == "theme":
                 self.get_application().restyle(self.s)
+            if what == "preload":
+                self.get_application().set_preload(bool(self.s["general"].get("preload", True)))
             try:
                 render(self.s)
             except Exception as e:      # keep the running shell on its last rendered files
@@ -1045,9 +1185,14 @@ def run_gui(start_page):
                 row.set_activatable_widget(chk)
                 chk.connect("toggled", lambda c, n=name: c.get_active() and self._set_theme(n))
                 g.add(row)
-            gg = self.group(p, "Look")
-            self.switch(gg, "Liquid glass", "general", "glass", "theme",
-                        "Translucent, blurred panels with soft rounded edges. Off: solid surfaces")
+            gd = self.group(p, "Desktop", "The background behind your windows: theme colour, Arch logo and a name. "
+                                          "Logo off and an empty name: a plain colour, nothing else.")
+            self.entry(gd, "Name under the logo (empty: none)", "desktop", "name", "desktop")
+            self.switch(gd, "Logo", "desktop", "logo", "desktop", "Arch Linux logo in the middle of the desktop")
+            gp = self.group(p, "Performance")
+            self.switch(gp, "Keep Settings ready", "general", "preload", "preload",
+                        "Loaded hidden at login: Super+I shows it in ~20 ms (~110 MB RAM). "
+                        "Off: cold start (~0.5 s), quits 10 min after closing")
             g2 = self.group(p, "Font")
             fr = Adw.ActionRow(title="Interface font", subtitle="Used by the bar, panels and lock screen")
             fb = Gtk.FontDialogButton(dialog=Gtk.FontDialog(), level=Gtk.FontLevel.FAMILY, valign=Gtk.Align.CENTER)
@@ -1086,7 +1231,6 @@ def run_gui(start_page):
             g = self.group(p, "Layout")
             self.combo(g, "Position", "bar", "position", [("top", "Top"), ("bottom", "Bottom")], "bar")
             self.spin(g, "Height", "bar", "height", 28, 72, 1, "bar", "pixels")
-            self.scale_row(g, "Background opacity", "bar", "opacity", 0, 1, 0.05, "bar")
             gt = self.group(p, "Text and icons", "One scale for the whole bar: every label uses the text size, "
                                                 "every icon the icon size, all with the same weight.")
             self.spin(gt, "Text size", "bar", "font_size", 11, 24, 1, "bar", "pixels")
@@ -1112,89 +1256,6 @@ def run_gui(start_page):
                     gw.add(r)
             return p
 
-        def page_wallpaper(self):
-            p = Adw.PreferencesPage()
-            g = self.group(p, "Folder")
-            self.wall_dir_row = Adw.ActionRow(title="Wallpaper folder", subtitle=self.s["wallpaper"]["directory"])
-            b = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"])
-            b.connect("clicked", self._pick_wall_dir)
-            self.wall_dir_row.add_suffix(b)
-            g.add(self.wall_dir_row)
-            g2 = self.group(p, "Wallpapers", "Click one to apply it.")
-            self.wall_flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
-                                         min_children_per_line=2, column_spacing=10, row_spacing=10,
-                                         homogeneous=True)
-            g2.add(self.wall_flow)
-            self._load_walls()
-            return p
-
-        def _pick_wall_dir(self, *_):
-            d = Gtk.FileDialog(title="Wallpaper folder")
-            d.set_initial_folder(Gio.File.new_for_path(self.s["wallpaper"]["directory"]))
-
-            def done(dlg, res):
-                try:
-                    f = dlg.select_folder_finish(res)
-                except GLib.Error:
-                    return
-                self.s["wallpaper"]["directory"] = f.get_path()
-                self.wall_dir_row.set_subtitle(f.get_path())
-                self.changed("wallpaper")
-                self._load_walls()
-            d.select_folder(self, None, done)
-
-        def _load_walls(self):
-            while (c := self.wall_flow.get_first_child()):
-                self.wall_flow.remove(c)
-            folder = Path(self.s["wallpaper"]["directory"]).expanduser()
-            files = sorted(f for f in folder.glob("*") if f.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"))
-            THUMBS.mkdir(parents=True, exist_ok=True)
-            old = THUMBS.parent / "thumbs"
-            if old.is_dir():
-                shutil.rmtree(old, ignore_errors=True)
-            from concurrent.futures import ThreadPoolExecutor
-            if getattr(self, "_pool", None) is None:
-                self._pool = ThreadPoolExecutor(max_workers=min(4, os.cpu_count() or 2))
-            self._wall_widgets = {}
-            for f in files:
-                btn = Gtk.Button(css_classes=["flat", "wall"] + (["current"] if str(f) == self.s["wallpaper"]["path"] else []),
-                                 tooltip_text=f.name)
-                pic = Gtk.Picture(content_fit=Gtk.ContentFit.COVER, can_shrink=True)
-                pic.set_size_request(200, 112)
-                box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-                box.append(pic)
-                box.append(Gtk.Label(label=f.name, ellipsize=Pango.EllipsizeMode.MIDDLE, max_width_chars=22,
-                                     css_classes=["caption", "dim-label"]))
-                btn.set_child(box)
-                btn.connect("clicked", lambda _b, path=str(f): self._set_wall(path))
-                self.wall_flow.append(btn)
-                self._wall_widgets[str(f)] = btn
-                self._pool.submit(self._thumb, f, pic)
-                btn.set_cursor_from_name("pointer")
-
-        def _thumb(self, f, pic):
-            try:
-                st = f.stat()
-                key = hashlib.sha1(f"{f}:{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()
-                t = THUMBS / f"{key}.jpg"
-                if not t.exists():
-                    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(f), 320, -1, True)
-                    pb.savev(str(t), "jpeg", ["quality"], ["85"])
-                tex = Gdk.Texture.new_from_filename(str(t))      # decode here, not on the UI thread
-                GLib.idle_add(lambda: pic.set_paintable(tex) or False)
-            except (GLib.Error, OSError):
-                pass
-
-        def _set_wall(self, path):
-            old = self._wall_widgets.get(self.s["wallpaper"]["path"])
-            if old:
-                old.remove_css_class("current")
-            self.s["wallpaper"]["path"] = path
-            self._wall_widgets[path].add_css_class("current")
-            self.changed("wallpaper")
-            apply_wallpaper(path)
-            self.toast(f"Wallpaper: {Path(path).name}")
-
         def page_notifications(self):
             p = Adw.PreferencesPage()
             g = self.group(p, "Popups")
@@ -1203,7 +1264,6 @@ def run_gui(start_page):
                         ("bottom-right", "Bottom right"), ("bottom-center", "Bottom center"),
                         ("bottom-left", "Bottom left")], "notifications")
             self.spin(g, "Show for", "notifications", "timeout", 1, 60, 1, "notifications", "seconds")
-            self.scale_row(g, "Background opacity", "notifications", "opacity", 0.3, 1, 0.05, "notifications")
             g2 = self.group(p, "Do not disturb")
             r = Adw.SwitchRow(title="Do not disturb", subtitle="Hide popups; notifications still go to the control center")
             dnd = (sh("swaync-client", "-D").stdout or "").strip() == "true" if running("swaync") else False
@@ -1218,33 +1278,9 @@ def run_gui(start_page):
         def page_lock(self):
             p = Adw.PreferencesPage()
             g = self.group(p, "Lock screen")
-            self.lock_wall_row = Adw.ActionRow(title="Lock screen wallpaper", subtitle=Path(self.s["lock"]["wallpaper"]).name)
-            b = Gtk.Button(icon_name="folder-open-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"])
-            b.connect("clicked", self._pick_lock_wall)
-            self.lock_wall_row.add_suffix(b)
-            g.add(self.lock_wall_row)
             self.button_row(g, "Lock now", None, "Lock", lambda: sh(str(DIR / "bin/hyprminimal-msg"), "lock", detach=True),
                             style="pill")
             return p
-
-        def _pick_lock_wall(self, *_):
-            d = Gtk.FileDialog(title="Lock screen wallpaper")
-            d.set_initial_folder(Gio.File.new_for_path(self.s["wallpaper"]["directory"]))
-            flt = Gtk.FileFilter(name="Images")
-            flt.add_mime_type("image/*")
-            store = Gio.ListStore.new(Gtk.FileFilter)
-            store.append(flt)
-            d.set_filters(store)
-
-            def done(dlg, res):
-                try:
-                    f = dlg.open_finish(res)
-                except GLib.Error:
-                    return
-                self.s["lock"]["wallpaper"] = f.get_path()
-                self.lock_wall_row.set_subtitle(f.get_basename())
-                self.changed("lock")
-            d.open(self, None, done)
 
         # ---- startup page
         def page_startup(self):
@@ -1391,7 +1427,7 @@ def run_gui(start_page):
         def page_about(self):
             p = Adw.PreferencesPage()
             g = self.group(p, "hyprminimal", "A minimal shell for Hyprland, official Arch packages only.")
-            pkgs = ("hyprland", "waybar", "swaync", "swayosd", "rofi", "hyprlock", "swaybg")
+            pkgs = ("hyprland", "waybar", "swaync", "swayosd", "rofi", "hyprlock")
             vers = dict(l.split()[:2] for l in sh("pacman", "-Q", *pkgs).stdout.splitlines() if " " in l)
             for pkg in pkgs:
                 g.add(Adw.ActionRow(title=pkg, subtitle=vers.get(pkg, "not installed")))
@@ -1615,11 +1651,18 @@ def run_gui(start_page):
             esc.connect("activate", lambda *_: self.win and self.win.close())
             self.add_action(esc)
             # `hyprminimal-settings --page X` calls this over D-Bus when we're already running (~10 ms)
+            # Super+I: hide the window when it's showing on the workspace you look at (whatever has the
+            # keyboard: with follow_mouse focus wanders off it), else show it here, in front
+            tog = Gio.SimpleAction.new("toggle", None)
+            tog.connect("activate", lambda *_: self.toggle())
+            self.add_action(tog)
             show = Gio.SimpleAction.new("show-page", GLib.VariantType.new("s"))
             show.connect("activate", lambda _a, v: self.present_page(v.get_string()))
             self.add_action(show)
             self._idle_quit = None
+            self.shown = False                # on screen (not parked, not unmapped)
             self.preloaded = False
+            self._preload_held = False
             self._held = False
             import panels
             self.panels = panels.PanelManager(self)
@@ -1638,19 +1681,19 @@ def run_gui(start_page):
         def restyle(self, s=None):
             """Theme the Settings window and the bar popups (live, no restart)."""
             g = (s or load_settings())["general"]
-            th, glass = themes.get(g.get("theme")), bool(g.get("glass", True))
+            th = themes.get(g.get("theme"))
             dark = themes.roles(th)["dark"]
             Adw.StyleManager.get_default().set_color_scheme(
                 Adw.ColorScheme.FORCE_DARK if dark else Adw.ColorScheme.FORCE_LIGHT)
-            self.css.load_from_string(themes.recolor(CSS, th).replace("%FONT%", g["font"])
-                                      + (themes.glass_settings(th) if glass else ""))
-            self.panels.restyle(th, glass)
+            self.css.load_from_string(themes.recolor(CSS, th).replace("%FONT%", g["font"]))
+            self.panels.restyle(th)
 
         def preload(self):
             """Started hidden by `hyprminimal start`: build the window and the keybinds page now,
             stay resident, so Super+I / Super+H only have to show it."""
             self.preloaded = True
             self.hold()
+            self._preload_held = True
             self.win = Win(self)
             self.win.connect("close-request", self._on_close)
             self.win._quiet = True          # prebuilding pages isn't the user visiting them
@@ -1658,13 +1701,59 @@ def run_gui(start_page):
             self.win._quiet = False
             self.win.show_page("last")
             self.panels.prewarm()           # bar popups too
+            self._map_parked()
+
+        def _map_parked(self):
+            """Map the window straight onto the park workspace (a window rule matches PARK_TITLE), so even
+            the first Super+I is a move. The real title comes back once Hyprland has placed it."""
+            self.win.set_title(PARK_TITLE)
+            self.win.present()
+            tries = [40]                      # up to 2 s
+
+            def placed():
+                c = self._me()
+                if c or tries[0] <= 0:
+                    self.win.set_title("hyprminimal settings")
+                    if c and not (c.get("workspace") or {}).get("name", "").startswith("special:"):   # rule missing
+                        self.win.set_visible(False)
+                    return False
+                tries[0] -= 1
+                return True
+            GLib.timeout_add(50, placed)
+
+        def _me(self):
+            """Our window as Hyprland sees it (None while unmapped)."""
+            pid = os.getpid()
+            return next((c for c in hypr_json("clients") or []
+                         if c.get("pid") == pid and c.get("class") == "dev.hyprminimal.Settings"), None)
+
+        def toggle(self):
+            c = self._me() if self.win and self.shown else None
+            ws = (hypr_json("activeworkspace") or {}).get("name")   # special workspaces have no id: names
+            if c and (c.get("workspace") or {}).get("name") == ws:
+                self.hide()
+            else:
+                self.present_page("last")
+
+        def hide(self):
+            """Close the window: park it (Keep Settings ready on) or unmap it (off: cold start next time)."""
+            if not self.win:
+                return
+            self.shown = False
+            c = self._me() if self.preloaded else None
+            if c:
+                hypr(f'dispatch hl.dsp.window.move({{ workspace = "{PARK}", follow = false, window = "address:{c["address"]}" }})')
+            else:
+                self.win.set_visible(False)
+                if not self.preloaded:
+                    self._idle_quit = GLib.timeout_add_seconds(IDLE_QUIT_SECONDS, self._quit_idle)
 
         def panel_state(self, is_open):
             """Started for the Wi-Fi popup (not preloaded): quit a while after it and the window are closed."""
             if self._idle_quit:
                 GLib.source_remove(self._idle_quit)
                 self._idle_quit = None
-            if not is_open and not self.preloaded and not (self.win and self.win.get_visible()):
+            if not is_open and not self.preloaded and not self.shown:
                 self._idle_quit = GLib.timeout_add_seconds(IDLE_QUIT_SECONDS, self._quit_idle)
 
         def _safe_panel(self, kind):
@@ -1690,52 +1779,56 @@ def run_gui(start_page):
                 self._idle_quit = None
             self.win.show_page(page)
             self.win.update_error_banner()
-            if self.win.get_visible():
-                self._bring_here()
-            self.win.present()
-            GLib.timeout_add(150, self._wake_pointer)
-
-        @staticmethod
-        def _bring_here():
-            """Already open on another workspace: Hyprland ignores present() there, so move the window
-            to the workspace being looked at (silently, the view stays put) before focusing it."""
-            try:
-                ws = json.loads(sh("hyprctl", "activeworkspace", "-j").stdout)["id"]
-                me = next((c for c in json.loads(sh("hyprctl", "clients", "-j").stdout)
-                           if c.get("pid") == os.getpid() and c.get("class") == "dev.hyprminimal.Settings"), None)
-            except (ValueError, KeyError, TypeError, OSError):
-                return
-            if me and me["workspace"]["id"] != ws:
-                sh("hyprctl", "dispatch",
-                   f'hl.dsp.window.move({{ workspace = {ws}, follow = false, window = "address:{me["address"]}" }})')
-                sh("hyprctl", "dispatch", f'hl.dsp.focus({{ window = "address:{me["address"]}" }})')
+            c = self._me() if self.win.get_visible() else None
+            if c:   # mapped (parked, or open on another workspace): move it here and focus it, no remap
+                ws = (hypr_json("activeworkspace") or {}).get("id")
+                if ws is not None and (c.get("workspace") or {}).get("id") != ws:
+                    hypr(f'dispatch hl.dsp.window.move({{ workspace = {ws}, follow = false, window = "address:{c["address"]}" }})')
+                hypr(f'dispatch hl.dsp.focus({{ window = "address:{c["address"]}" }})')
+                self.win.present()            # GTK side: keyboard focus to the window
+            else:
+                self.win.present()
+            self.shown = True
+            GLib.timeout_add(100, self._wake_pointer)
 
         @staticmethod
         def _wake_pointer():
-            """Hyprland gives a window that opens under a still cursor no pointer-enter, so GTK ignores the
+            """Hyprland gives a window that appears under a still cursor no pointer-enter, so GTK ignores the
             scroll wheel until the mouse moves. Nudge the cursor 1px and back (invisible) to send it."""
-            def work():
-                try:
-                    x, y = (int(float(v)) for v in sh("hyprctl", "cursorpos").stdout.split(","))
-                except (ValueError, OSError):
-                    return
-                for px in (x + 1, x):
-                    sh("hyprctl", "dispatch", f"hl.dsp.cursor.move({{ x = {px}, y = {y} }})")
-            threading.Thread(target=work, daemon=True).start()
+            try:
+                x, y = (int(float(v)) for v in hypr("cursorpos").split(","))
+            except ValueError:
+                return False
+            for px in (x + 1, x):
+                hypr(f"dispatch hl.dsp.cursor.move({{ x = {px}, y = {y} }})")
             return False
 
         def _on_close(self, win):
-            win.set_visible(False)            # keep it warm: reopening is instant
-            wp = win.stack.get_child_by_name("wallpaper")
-            if wp is not None:                # thumbnails are the bulk of memory; rebuilt on next visit
-                win.stack.remove(wp)
-            if not self.preloaded:
-                self._idle_quit = GLib.timeout_add_seconds(IDLE_QUIT_SECONDS, self._quit_idle)
+            self.hide()                       # Esc, Super+Q, click outside: keep it warm, never destroy
             return True
+
+        def set_preload(self, on):
+            """Settings -> General -> Keep Settings ready, live: stay resident, or quit like a cold start
+            (10 min after the window closes). `hyprminimal start` reads .generated/preload at the next login."""
+            self.preloaded = on
+            if on:
+                if self._idle_quit:
+                    GLib.source_remove(self._idle_quit)
+                    self._idle_quit = None
+                if not self._preload_held:
+                    self.hold()
+                    self._preload_held = True
+            else:
+                if self._preload_held:
+                    self.release()
+                    self._preload_held = False
+                if self.win and not self.shown and self.win.get_visible():   # parked: let it go
+                    self.win.set_visible(False)
+                    self._idle_quit = GLib.timeout_add_seconds(IDLE_QUIT_SECONDS, self._quit_idle)
 
         def _quit_idle(self):
             self._idle_quit = None
-            if self.panels.current or (self.win and self.win.get_visible()):
+            if self.panels.current or self.shown:
                 return False                  # in use again: the next close re-arms the timer
             self.quit()
             return False

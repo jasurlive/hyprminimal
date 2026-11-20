@@ -18,10 +18,10 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 
 | Command | What it does |
 |---|---|
-| `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, wallpaper). It refuses to start if a package from `packages.txt` is missing and prints the `pacman` line to install it. |
+| `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, desktop background). It refuses to start if a package from `packages.txt` is missing and prints the `pacman` line to install it. |
 | `hyprminimal stop` | Stops hyprminimal, for this session only. |
 | `hyprminimal restart` | Restarts everything, including the settings process. Run it after editing any file in this folder by hand. |
-| `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync`, `swayosd-server` or `swaybg`. |
+| `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync` or `swayosd-server`. |
 | `hyprminimal status` | Shows whether hyprminimal is active and which components are running. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
 
@@ -45,7 +45,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Super+D | Calendar popup |
 | Super+P | Battery / power mode popup |
 | Super+C | VS Code (`code`) |
-| Super+I | Settings |
+| Super+I | Settings (press again to hide it) |
 | Super+H | Keybinds editor |
 | Super+L | Lock screen |
 | Media, volume and brightness keys | Control playback, volume and brightness, with an OSD |
@@ -57,7 +57,7 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Clock or date | Calendar with the time, centred under the clock. Hovering shows it, moving away hides it; a click pins it open (click again, click outside or Esc to close). Right click: control center. |
 | Battery | Power mode |
 | ↓ speed | Network |
-| Media capsule | Control center (player + equalizer) |
+| Media capsule (square-dot equalizer while playing, flat dots while paused) | Control center (player) |
 | Bell | Control center |
 
 ### Session menu (keys 1–4)
@@ -101,15 +101,14 @@ Any key that is missing from the file falls back to its default.
 | Setting | Key | Default | Notes |
 |---|---|---|---|
 | Interface font | `general.font` | `Noto Sans` | Used by the bar, panels, notifications and lock screen. |
-| Theme | General | Charcoal | Charcoal (from the django-react template) or Tokyo Night. Bar, popups, notifications, OSD, launcher, kitty, lock screen, login screen, Hyprland borders and Settings follow it. See [Customizing the look](#customizing-the-look). |
-| Liquid glass | General | On | Rounded panels with a bright hairline edge, soft shadows and Hyprland blur behind them. Off: solid, square surfaces. |
+| Theme | General | Charcoal | Charcoal, Hygge, Spruce, Fjord (dark), Linen, Matte, Sage (light), all from the django-react template, or Tokyo Night. Bar, popups, notifications, OSD, launcher, kitty, lock screen, login screen, Hyprland borders and Settings follow it. See [Customizing the look](#customizing-the-look). |
+| Keep Settings ready | `general.preload` | On | Settings starts at login, parked on a hidden workspace: Super+I only moves it in or out (~20 ms, no redraw; ~110 MB RAM). Super+I closes it whenever it shows on your workspace, wherever the keyboard focus is. Off: cold start on first use (~0.5 s), and it quits 10 min after you close it. Takes effect live. |
 
 ### Bar
 | Setting | Key | Range / values | Default |
 |---|---|---|---|
 | Position | `bar.position` | `top`, `bottom` | `top` |
 | Height | `bar.height` | 28–72 px | 45 |
-| Background opacity | `bar.opacity` | 0–1 | 0.30 |
 | Text size | `bar.font_size` | 11–24 px | 16 |
 | Icon size | `bar.icon_size` | 12–32 px | 20 |
 | Clock size | `bar.clock_size` | 11–32 px | 18 |
@@ -126,24 +125,30 @@ Any key that is missing from the file falls back to its default.
 
 `tray` shows the icons of apps that offer one, such as Telegram, Discord or Steam.
 
-### Wallpaper
-| Setting | Key | Notes |
-|---|---|---|
-| Wallpaper folder | `wallpaper.directory` | The folder whose thumbnails the page shows. They're cached in `~/.cache/hyprminimal/thumbs-v2`. |
-| Wallpaper | `wallpaper.path` | Click a thumbnail to set it. If the file is missing, the background is plain `#222436`. |
+### Desktop background
+No wallpaper and no wallpaper program. Hyprland paints the theme's background colour (`misc.background_color`
+in `.generated/hypr-theme.lua`), and the bar popup program (`helpers/panels.c`) draws an Arch logo and
+a name (default "hyprminimal") on a background layer, once per monitor. Both follow the theme live.
+
+| Setting | Key | Default | Notes |
+|---|---|---|---|
+| Name under the logo | `desktop.name` | `hyprminimal` | Any text; empty = no text. Saved with Enter or the ✓ button. |
+| Logo | `desktop.logo` | On | Off with an empty name: a plain theme colour, nothing else. |
+
+Both apply live (Settings writes `.generated/desktop`; the popup program watches it and redraws the desktop). The logo is
+`.generated/arch-logo.png`, drawn by `arch_logo()` in `settings/hyprminimal_settings.py` from the Symbols
+Nerd Font glyph without its ™ sign; change the wordmark in `settings/panels.css` (`.bg-word`).
 
 ### Notifications
 | Setting | Key | Range / values | Default |
 |---|---|---|---|
 | Position | `notifications.position` | `top-` or `bottom-` + `left`/`center`/`right` | `top-right` |
 | Show for | `notifications.timeout` | 1–60 s | 3 |
-| Background opacity | `notifications.opacity` | 0.3–1 | 0.70 |
 | Do not disturb | — | live toggle | off |
 
 ### Lock Screen
-| Setting | Key | Range | Default |
-|---|---|---|---|
-| Lock screen wallpaper | `lock.wallpaper` | image file | — |
+Plain theme colour behind the clock and the password card, like the desktop: no image, no blur
+(`hyprlock/hyprlock.conf`, recoloured per theme into `.generated/hyprlock.conf`). The page has a Lock now button.
 
 hyprminimal has no idle daemon: the screen never locks, turns off or suspends by itself. Lock with **Super+L**.
 
@@ -226,12 +231,11 @@ colour in the same role into `.generated/`. So:
   `settings/themes.py`. It shows up in Settings → General.
 - **Terminal colours**: kitty includes `.generated/kitty-colors.conf` (from `kitty_conf()` in `themes.py`,
   ANSI colours in `ANSI_DARK` / `ANSI_TOKYO`). Running kittys reload on a theme change.
-- **Window borders and blur**: `.generated/hypr-theme.lua` (from `hypr_lua()`), loaded by `hypr/layerrules.lua`
-  after your own `~/.config/hypr/theme.lua`, so it wins. Change the blur strength or style (Hyprland 0.57 has
-  `variant`s such as `acrylic` and `frost`) in `hypr_lua()`.
-- **Liquid glass look**: the `glass_*()` functions in `themes.py`, one per part (bar/notifications,
-  OSD, bar popups, Settings, launcher). Each sets the transparency (`alpha(@surface, 0.90)`, `0.92`, …),
-  the hairline edge (`glass_edge()`) and the corner radii.
+- **Window borders**: `.generated/hypr-theme.lua` (from `hypr_lua()`), loaded by `hypr/layerrules.lua`
+  after your own `~/.config/hypr/theme.lua`, so it wins.
+- **Solid surfaces**: blur, shadows and window opacity are off in `~/.config/hypr/theme.lua`, animations in
+  `~/.config/hypr/animations.lua`, and every shell surface (bar, popups, notifications, OSD, launcher) has an
+  opaque background. Translucency forces the compositor to redraw what's behind on every frame, blur even more.
 
 **Calendar click area.** An invisible strip from the bar popup program sits over the date and clock
 (`reload_zones()` in `helpers/panels.c`): a click toggles the calendar, a right click opens the control center.
@@ -246,13 +250,14 @@ Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu 
 
 | Generated file | Used by |
 |---|---|
-| `.generated/theme` | Current theme, glass on/off |
+| `.generated/theme` | Current theme, dark/light |
 | `.generated/palette.css` | Colour roles (GTK `@define-color`), read by `scripts/media.sh` |
 | `.generated/waybar.css`, `swaync.css`, `swayosd.css` | Bar, notifications/control center, OSD |
 | `.generated/rofi/*.rasi` | Launcher and session menu |
 | `.generated/hyprlock.conf` | Lock screen |
 | `.generated/kitty-colors.conf` | kitty |
-| `.generated/hypr-theme.lua` | Hyprland borders and blur |
+| `.generated/hypr-theme.lua` | Hyprland border colours |
+| `.generated/preload` | `on`/`off`: start Settings hidden at login |
 | `.generated/clock_zone.json` | Calendar click area |
 
 ---
@@ -301,7 +306,7 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 | Logs | `$XDG_RUNTIME_DIR/hyprminimal/*.log` (usually `/run/user/1000/hyprminimal/`). The previous run of each log is kept as `NAME.log.1`. |
 | "hyprminimal is active" flag | `$XDG_RUNTIME_DIR/hyprminimal/active` |
 | Backups of Hyprland files | `~/.config/hypr/.pre-hyprminimal-backup/` |
-| Hyprland files hyprminimal touches | `startup.lua` (autostart), `keybind.lua` (hyprminimal-msg), `hyprland.lua` (last line loads `hypr/layerrules.lua` for blur) |
+| Hyprland files hyprminimal touches | `startup.lua` (autostart), `keybind.lua` (hyprminimal-msg), `hyprland.lua` (last line loads `hypr/layerrules.lua` for popup rules) |
 
 Log files:
 
@@ -310,7 +315,6 @@ Log files:
 | `waybar.log` | Bar |
 | `swaync.log` | Notifications and control center |
 | `swayosd.log` | Volume/brightness OSD |
-| `swaybg.log` | Wallpaper |
 | `settings.log` | Settings app and the Wi-Fi list popup |
 | `panels.log` | Bar popups (calendar, battery, network, system) and the clock click strip |
 | `helpers-build.log` | Build of the C helpers (`helpers/*.c`, incl. the bar popups) |
@@ -392,8 +396,8 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 - Check that `playerctld` is running: `pgrep playerctld || playerctld daemon`.
 - To see which players are available, run `playerctl -l`.
 
-**Black or plain background instead of the wallpaper**
-- The image file was moved or deleted. Choose it again in Settings → Wallpaper.
+**Plain background without the Arch logo**
+- The bar popup program isn't running: `pgrep -f .generated/bin/panels || hyprminimal restart`.
 
 **The lock screen is stuck or won't accept your password**
 - Make sure Caps Lock is off and the keyboard layout is the one your password uses.
@@ -439,7 +443,7 @@ hyprminimal restart                        # everything is rebuilt from the defa
 1. In `~/.config/hypr/startup.lua`, remove the hyprminimal line (or restore `.pre-hyprminimal-backup/startup.lua`, after checking it).
 2. Remove the `# hyprminimal autostart` block from `~/.bash_profile`.
 3. Run `hyprminimal stop`.
-4. Remove the last line of `~/.config/hypr/hyprland.lua` (the one that loads the hyprminimal blur rules).
+4. Remove the last line of `~/.config/hypr/hyprland.lua` (the one that loads the hyprminimal layer rules).
 5. In `keybind.lua`, point `SHELLMSG` at your new shell, or restore the file from `.pre-hyprminimal-backup/`.
 6. Delete the folders:
    ```bash

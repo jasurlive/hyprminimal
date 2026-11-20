@@ -1,4 +1,4 @@
-// hyprminimal launcher (Super+R): numbered app list in rofi.
+// hyprminimal launcher, rofi fallback (Super+R when helpers/panels.c isn't running): numbered app list in rofi.
 // Apps are numbered A-Z (numbers stay the same between runs); the 5 apps launched last are pinned on
 // top, newest first. Type a number + Enter to launch that app, or search by name.
 // "rm NAME" (or "rm NUMBER") + Enter uninstalls the app instead, in a terminal that asks first.
@@ -111,7 +111,7 @@ static void spawn(char *const argv[]) {
     if (pid > 0) waitpid(pid, NULL, 0);
 }
 
-// tell Settings which popup closes on a click outside it ("" = none): hyprminimal-msg catch, minus bash
+// tell the bar popups (helpers/panels.c) which popup closes on a click outside it ("" = none): hyprminimal-msg catch, minus bash
 static pid_t catch_popup(const char *name) {
     char arg[64];
     snprintf(arg, sizeof arg, "[<'%s'>]", name);
@@ -119,8 +119,8 @@ static pid_t catch_popup(const char *name) {
     if (pid == 0) {
         int n = open("/dev/null", O_RDWR);
         dup2(n, 1); dup2(n, 2);
-        execlp("gdbus", "gdbus", "call", "--session", "--dest", "dev.hyprminimal.Settings", "--object-path",
-               "/dev/hyprminimal/Settings", "--method", "org.gtk.Actions.Activate", "catch", arg, "{}",
+        execlp("gdbus", "gdbus", "call", "--session", "--dest", "dev.hyprminimal.Panels", "--object-path",
+               "/dev/hyprminimal/Panels", "--method", "org.gtk.Actions.Activate", "catch", arg, "{}",
                (char *)NULL);
         _exit(127);
     }

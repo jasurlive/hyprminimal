@@ -1,17 +1,10 @@
--- hyprminimal: blur behind the bar and panels (Noctalia's "glass" look). Popups appear instantly: no animation.
+-- hyprminimal: shell layers (bar, popups, notifications, OSD, launcher). No blur: every surface is solid.
+-- Animations are off globally (animations.lua); no_anim keeps popups instant even if you turn them back on.
 -- Loaded from ~/.config/hypr/hyprland.lua (dofile); harmless when hyprminimal isn't running.
-local function glass(name, ns, extra)
-    local spec = { name = "hyprminimal-" .. name, match = { namespace = ns }, blur = true, ignore_alpha = 0.2 }
-    for k, v in pairs(extra or {}) do spec[k] = v end
-    hl.layer_rule(spec)
+for name, ns in pairs({ cc = "^swaync-control-center$", notif = "^swaync-notification-window$", osd = "^swayosd$",
+                        rofi = "^rofi$", panel = "^hyprminimal-panel$" }) do
+    hl.layer_rule({ name = "hyprminimal-" .. name, match = { namespace = ns }, no_anim = true })
 end
-
-glass("bar",    "^waybar$")
-glass("cc",     "^swaync-control-center$",       { no_anim = true })
-glass("notif",  "^swaync-notification-window$",  { no_anim = true })
-glass("osd",    "^swayosd$",                     { no_anim = true })
-glass("rofi",   "^rofi$",                        { no_anim = true })
-glass("panel",  "^hyprminimal-panel$",           { no_anim = true })
 hl.layer_rule({ name = "hyprminimal-catcher", match = { namespace = "^hyprminimal-catcher$" }, no_anim = true })
 
 -- bar popups close on a click anywhere but the popup or the bar (non_consuming: the click still
@@ -75,15 +68,17 @@ for _, button in ipairs({ "mouse:272", "mouse:273", "mouse:274" }) do
     hl.bind(button, close_on_click, { non_consuming = true, description = "Close bar popup on outside click" })
 end
 
--- settings window: float and centre it, like Noctalia's settings panel
+-- settings window: float and centre it, like Noctalia's settings panel; no open/close animation so Super+I is instant
 -- launcher "rm NAME": uninstall terminal (scripts/remove-app.sh)
 hl.window_rule({ match = { class = "^hyprminimal-remove$" }, float = true, size = "820 520", center = 1 })
--- theme from Settings -> General (window border colours, glass blur); returns true when glass is on
-local okt, glass = pcall(dofile, HM .. "/.generated/hypr-theme.lua")
-glass = okt and glass == true
--- glass: Settings is translucent and blurred, so it must not be forced opaque
-local settings_rule = { match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, size = "1120 760", center = 1 }
-if not glass then settings_rule.opaque = true end   -- (a rule with opaque = false still counts as set)
+-- theme from Settings -> General (window border colours)
+pcall(dofile, HM .. "/.generated/hypr-theme.lua")
+local settings_rule = { match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, size = "1120 760", center = 1,
+                        no_anim = true, opaque = true }
 hl.window_rule(settings_rule)
+-- Keep Settings ready: the preloaded window maps straight onto a special workspace nothing shows (by its
+-- temporary title); Super+I then only moves it in and out (settings/hyprminimal_settings.py, PARK)
+hl.window_rule({ match = { class = "^dev\\.hyprminimal\\.Settings$", title = "^hyprminimal settings \\(parked\\)$" },
+                 workspace = "special:hyprminimal-settings silent" })
 
 return true

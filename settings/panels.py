@@ -380,10 +380,10 @@ class PanelManager:
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.css,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
 
-    def restyle(self, theme, glass):
-        """Recolour the popups for a hyprminimal theme (see themes.py); glass adds the frosted look."""
+    def restyle(self, theme):
+        """Recolour the popups for a hyprminimal theme (see themes.py)."""
         import themes
-        self.css.load_from_string(themes.recolor(CSS, theme) + (themes.glass_panels(theme) if glass else ""))
+        self.css.load_from_string(themes.recolor(CSS, theme))
 
     def prewarm(self):
         """Build every panel hidden (called on preload) so the first click is instant."""

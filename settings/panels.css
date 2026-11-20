@@ -1,10 +1,14 @@
 /* Bar popups (helpers/panels.c and settings/panels.py). Tokyo Night Moon colours: themes.recolor()
    swaps them per theme; `hyprminimal-settings --apply` writes the result to .generated/panels.css. */
 window.hyprminimal-panel { background: transparent; }
+/* desktop background (helpers/panels.c): plain theme colour, Arch logo (.generated/arch-logo.png) and wordmark */
+window.hyprminimal-background { background: #222436; }
+.bg-word { font-size: 30px; font-weight: 300; letter-spacing: 8px; color: #a9b1d6; opacity: 0.45; }
+.bg-logo + .bg-word { margin-top: 18px; }   /* the gap only under the logo */
 window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0, 0, 0.01); }   /* needs real pixels or no buffer is attached */
 .panel {
-  background: rgba(31, 35, 53, 0.96); border: 1px solid #4b517a; padding: 18px 20px;
-  color: #c0caf5; box-shadow: 0 6px 18px rgba(24, 27, 42, 0.55);
+  background: rgba(31, 35, 53, 1); border: 1px solid #4b517a; padding: 18px 20px;
+  color: #c0caf5;
 }
 .panel .big   { font-size: 40px; font-weight: 800; color: #c0caf5; }
 .panel .mid   { font-size: 18px; font-weight: 700; color: #c0caf5; }
@@ -67,3 +71,20 @@ window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0
 .panel .card.hotspot.on .hs-icon { color: #7a88cf; }
 .panel .hs-error { color: #d7729f; }
 .panel .wifi-pw { margin-top: 8px; background: #2c314a; border: 1px solid #4b517a; border-radius: 8px; padding: 4px 10px; }
+/* launcher (Super+R) and session menu (Super+Esc): helpers/panels.c */
+.panel.launcher { padding: 14px; }
+.panel .launcher-input { background: #2c314a; border: 1px solid #4b517a; padding: 10px 14px; }
+.panel .launcher-input .prompt { font-family: "Symbols Nerd Font"; font-size: 16pt; color: #7a88cf; }
+.panel .launcher-input text { font-size: 13pt; color: #c0caf5; caret-color: #c0caf5; }
+.panel .launcher-input text placeholder { color: #737aa2; }
+.panel.session { padding: 8px; }
+.panel list.menu { background: transparent; }
+.panel list.menu > row { padding: 8px 12px; margin-bottom: 2px; border-radius: 0; font-size: 13pt; color: #c0caf5; }
+.panel.session list.menu > row { padding: 9px 12px; font-size: 12pt; }
+.panel list.menu > row:hover { background: rgba(122, 136, 207, 0.15); }
+.panel list.menu > row:selected { background: rgba(122, 136, 207, 0.30); color: #c0caf5; }
+.panel list.menu .num { font-family: monospace; color: #a9b1d6; opacity: 0.55; }
+.panel list.menu .tag { font-size: 10pt; color: #a9b1d6; opacity: 0.55; }
+.panel list.menu .glyph { font-family: "Symbols Nerd Font"; min-width: 18px; }
+.panel list.menu > row.urgent { color: #cf8f9a; }
+.panel list.menu > row.urgent:selected { background: alpha(#cf8f9a, 0.2); color: #cf8f9a; }

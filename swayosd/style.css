@@ -1,6 +1,6 @@
-/* hyprminimal OSD: square glass box under the bar, like Noctalia's */
+/* hyprminimal OSD: square solid box under the bar, like Noctalia's */
 window#osd {
-  background: rgba(31, 35, 53, 0.70);
+  background: rgba(31, 35, 53, 1);
   border: 1px solid #4b517a;
   border-radius: 0;
   padding: 14px 22px;

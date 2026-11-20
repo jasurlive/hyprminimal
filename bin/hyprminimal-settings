@@ -13,6 +13,9 @@ elif [[ $1 != --apply && $1 != --preload && $1 != -h && $1 != --help ]]; then
   gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
     --method org.gtk.Actions.Activate show-page "[<'$page'>]" "{}" >/dev/null 2>&1 && exit 0
 fi
+# software rendering: the GPU renderers load the whole GL/Vulkan driver stack (~210 MB RSS vs ~110 MB) for a
+# window that is mostly still; showing it is a move anyway (see PARK). GSK_RENDERER in the environment wins.
+export GSK_RENDERER=${GSK_RENDERER:-cairo}
 # layer-shell must be loaded before libwayland for the bar popups to attach to the screen edge
 LS=/usr/lib/libgtk4-layer-shell.so
 [[ -e $LS ]] && export LD_PRELOAD="$LS${LD_PRELOAD:+:$LD_PRELOAD}"

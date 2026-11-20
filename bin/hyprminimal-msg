@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shell actions for your Hyprland keybinds (launcher, lock, media, OSD, panels, ...).
-DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+SELF=$(readlink -f "${BASH_SOURCE[0]}"); DIR=${SELF%/bin/*}   # one fork: this runs on every key press
 export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
 cmd=${1:-}; shift
 # action on the bar popup program (helpers/panels.c); fails fast when it isn't running
@@ -8,7 +8,11 @@ panels_call() { gdbus call --session --dest dev.hyprminimal.Panels --object-path
                   --method org.gtk.Actions.Activate "$1" "$2" "{}" >/dev/null 2>&1; }
 
 case $cmd in
-  launcher)       pkill -x rofi && exit   # numbered, last used first: C helper, bash fallback without gcc
+  launcher)       # resident popup in helpers/panels.c (instant); rofi when that isn't running:
+                  # C helper, bash fallback without gcc
+                  # panels first: pkill scans every process (50-100 ms), only the fallback needs it
+                  panels_call panel "[<'launcher'>]" && exit 0
+                  pkill -x rofi && exit
                   [[ -x $DIR/.generated/bin/launcher ]] && exec "$DIR/.generated/bin/launcher"
                   exec "$DIR/scripts/launcher.sh" ;;
   lock)           # hyprlock can crash on resume (AMD/Mesa abort when the screen comes back), which leaves
@@ -24,7 +28,7 @@ case $cmd in
                     sleep 0.5
                   done ;;
   control-center) exec "$DIR/scripts/control-center.sh" ;;   # live info in the tiles, then toggle
-  panel)          # calendar | battery | network | system: helpers/panels.c. wifi (network list): Settings app
+  panel)          # calendar | battery | network | system | launcher | session: helpers/panels.c. wifi (network list): Settings app
                   [[ ${1:-} =~ ^[a-z]+$ ]] || exit 2
                   if [[ $1 == wifi ]]; then
                     panels_call panel-close "[]"
@@ -46,7 +50,9 @@ case $cmd in
   catch)          # $1 = process name of a popup that should close on a click outside it ("" = closed)
                   [[ ${1:-} =~ ^[a-z-]*$ ]] || exit 2
                   panels_call catch "[<'${1:-}'>]" ;;
-  session)        pkill -x rofi || exec "$DIR/scripts/session.sh" ;;
+  session)        panels_call panel "[<'session'>]" && exit 0   # helpers/panels.c; rofi when it isn't running
+                  pkill -x rofi && exit
+                  exec "$DIR/scripts/session.sh" ;;
   media)
     case ${1:-toggle} in toggle) exec playerctl play-pause ;; *) exec playerctl "$1" ;; esac ;;
   volume)         exec swayosd-client --output-volume "$1" --max-volume 100 ;;   # $1 = +N / -N
@@ -67,9 +73,12 @@ case $cmd in
   bluetooth-state) systemctl is-active -q bluetooth && timeout 1 bluetoothctl show 2>/dev/null | grep -q "Powered: yes" \
                      && echo true || echo false ;;
   nightlight-state) pgrep -x hyprsunset >/dev/null && echo true || echo false ;;
-  settings)       exec "$DIR/bin/hyprminimal-settings" ;;
+  settings)       # Super+I: toggle the Settings window (start it when it isn't running)
+                  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+                    --method org.gtk.Actions.Activate toggle "[]" "{}" >/dev/null 2>&1 && exit 0
+                  exec "$DIR/bin/hyprminimal-settings" ;;
   errors)         # bar error pill: open Settings on the page of the first failed part
-                  declare -A P=([waybar]=bar [swaync]=notifications [swayosd-server]=system [swaybg]=wallpaper
+                  declare -A P=([waybar]=bar [swaync]=notifications [swayosd-server]=system
                                 [settings]=general)
                   page=general
                   for f in "${XDG_RUNTIME_DIR:-/tmp}"/hyprminimal/errors/*; do [[ -f $f ]] && { page=${P[${f##*/}]:-general}; break; }; done

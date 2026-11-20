@@ -8,12 +8,9 @@
 //  - control center: live tile labels without a config reload. scripts/control-center.sh writes
 //    $XDG_RUNTIME_DIR/hyprminimal/cc/labels (lines: label-substring<TAB>new label, \n escaped);
 //    the file "expanded" in that folder grows the notification list, its absence shrinks it
-//  - control center: an equalizer in each media card (like the bar's, scripts/media.sh), between the
-//    title row and the buttons. Braille text, EQ_FPS frames a second only while the card is shown and
-//    its player plays (swaync's play button shows the pause icon); otherwise a flat row, no timer
+//  - control center: a "K" keycap under each media card's play/pause button
 // Built by bin/hyprminimal on start: gcc -shared -fPIC $(pkg-config --cflags --libs gtk4) -lm
 #include <gtk/gtk.h>
-#include <math.h>
 #include <string.h>
 
 #define LIST_COLLAPSED 76    // px of notification list: one card
@@ -284,117 +281,37 @@ static void cc_found(GtkWidget *win) {
   }
 }
 
-// ---------------------------------------------------------------- media equalizer
-// EQ_CHARS braille characters, each 2 columns of 4 dots: 2*EQ_CHARS slim dotted bars. No audio data:
-// each bar jumps to a new random height every frame, the middle ones may reach higher than the edges.
-#define EQ_CHARS 15
-#define EQ_BARS (2 * EQ_CHARS)
-#define EQ_FPS 4
-static const guint EQ_L[5] = {0, 0x40, 0x44, 0x46, 0x47};   // left column, 0-4 dots from the bottom
-static const guint EQ_R[5] = {0, 0x80, 0xA0, 0xB0, 0xB8};   // right column
-static GPtrArray *eqs;       // the equalizer labels (weak: removed when swaync drops a player card)
-static guint eq_tick;
-
-static void eq_render(GtkWidget *eq, const int *h) {
-  GString *s = g_string_new("<span font_family='DejaVu Sans' letter_spacing='-6000'>");
-  for (int i = 0; i < EQ_BARS; i += 2) {
-    char buf[8];
-    buf[g_unichar_to_utf8(0x2800 + EQ_L[h[i]] + EQ_R[h[i + 1]], buf)] = 0;
-    g_string_append(s, buf);
+// ---------------------------------------------------------------- media card
+// swaync's play/pause button gets a "K" keycap below it (like the number keycaps on the tiles). Button and
+// keycap go in a little column; every control in the row hangs from the top so the icons stay in one line.
+// No animation here: swaync's own play/pause icon already shows the state.
+static void media_attach(GtkWidget *overlay) {
+  if (!GTK_IS_BOX(overlay) || g_object_get_data(G_OBJECT(overlay), "hyprminimal-media")) return;
+  GtkWidget *head = gtk_widget_get_first_child(overlay);
+  GtkWidget *row = head ? gtk_widget_get_next_sibling(head) : NULL, *play = NULL;
+  if (!row) return;
+  g_object_set_data(G_OBJECT(overlay), "hyprminimal-media", GINT_TO_POINTER(1));
+  for (GtkWidget *b = gtk_widget_get_first_child(row); b; b = gtk_widget_get_next_sibling(b)) {
+    const char *icon = GTK_IS_BUTTON(b) ? gtk_button_get_icon_name(GTK_BUTTON(b)) : NULL;
+    if (icon && strstr(icon, "media-playback")) play = b;
+    gtk_widget_set_valign(b, GTK_ALIGN_START);
   }
-  g_string_append(s, "</span>");
-  if (g_strcmp0(s->str, g_object_get_data(G_OBJECT(eq), "hyprminimal-markup"))) {
-    gtk_label_set_markup(GTK_LABEL(eq), s->str);
-    g_object_set_data_full(G_OBJECT(eq), "hyprminimal-markup", g_strdup(s->str), g_free);
-  }
-  g_string_free(s, TRUE);
-}
-
-// playing = swaync's play/pause button shows the pause icon
-static gboolean eq_playing(GtkWidget *eq) {
-  GtkWidget *b = g_object_get_data(G_OBJECT(eq), "hyprminimal-play");
-  const char *icon = b ? gtk_button_get_icon_name(GTK_BUTTON(b)) : NULL;
-  return icon && strstr(icon, "playback-pause");
-}
-
-static gboolean eq_on_tick(gpointer d) {
-  (void)d;
-  gboolean any = FALSE;
-  for (guint i = 0; eqs && i < eqs->len; i++) {
-    GtkWidget *eq = eqs->pdata[i];
-    int *h = g_object_get_data(G_OBJECT(eq), "hyprminimal-h");
-    if (!gtk_widget_get_mapped(eq) || !eq_playing(eq)) {   // rest: one flat row of dots
-      for (int j = 0; j < EQ_BARS; j++) h[j] = 1;
-      eq_render(eq, h);
-      continue;
-    }
-    any = TRUE;
-    for (int j = 0; j < EQ_BARS; j++) {   // bell-shaped ceiling: edges reach 2 dots, the middle 4
-      int top = 2 + (int)lround(2 * pow(sin(G_PI * (j + 0.5) / EQ_BARS), 1.5));
-      h[j] = (h[j] + g_random_int_range(0, top - 1)) % top + 1;   // never the same height twice
-    }
-    eq_render(eq, h);
-  }
-  if (!any) eq_tick = 0;
-  return any ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
-}
-
-static void eq_wake(void) {
-  if (!eq_tick) eq_tick = g_timeout_add(1000 / EQ_FPS, eq_on_tick, NULL);
-}
-static void eq_on_icon(GObject *o, GParamSpec *ps, gpointer d) { (void)o; (void)ps; (void)d; eq_wake(); }
-static void eq_gone(gpointer d, GObject *dead) { (void)d; if (eqs) g_ptr_array_remove(eqs, dead); }
-
-// a media card was shown: give it an equalizer once, and (re)start the animation
-static void eq_attach(GtkWidget *overlay) {
-  GtkWidget *eq = g_object_get_data(G_OBJECT(overlay), "hyprminimal-eq");
-  if (!eq) {
-    GtkWidget *head = gtk_widget_get_first_child(overlay);
-    if (!GTK_IS_BOX(overlay) || !head) return;
-    eq = gtk_label_new(NULL);
-    gtk_widget_add_css_class(eq, "hyprminimal-eq");
-    gtk_widget_set_halign(eq, GTK_ALIGN_CENTER);
-    gtk_widget_set_overflow(eq, GTK_OVERFLOW_HIDDEN);
-    gtk_widget_set_can_target(eq, FALSE);
-    int *h = g_new(int, EQ_BARS);
-    for (int j = 0; j < EQ_BARS; j++) h[j] = 1;
-    g_object_set_data_full(G_OBJECT(eq), "hyprminimal-h", h, g_free);
-    eq_render(eq, h);
-    gtk_box_insert_child_after(GTK_BOX(overlay), eq, head);
-    g_object_set_data(G_OBJECT(overlay), "hyprminimal-eq", eq);
-    if (!eqs) eqs = g_ptr_array_new();
-    g_ptr_array_add(eqs, eq);
-    g_object_weak_ref(G_OBJECT(eq), eq_gone, NULL);
-    // the play/pause button: wakes the timer when playback starts while the panel is open, and gets a
-    // "K" keycap below it (like the number keycaps on the tiles). Button and keycap go in a little column;
-    // every control in the row hangs from the top so the icons stay in one line.
-    GtkWidget *row = gtk_widget_get_next_sibling(eq), *play = NULL;
-    for (GtkWidget *b = row ? gtk_widget_get_first_child(row) : NULL; b; b = gtk_widget_get_next_sibling(b)) {
-      const char *icon = GTK_IS_BUTTON(b) ? gtk_button_get_icon_name(GTK_BUTTON(b)) : NULL;
-      if (icon && strstr(icon, "media-playback")) play = b;
-      gtk_widget_set_valign(b, GTK_ALIGN_START);
-    }
-    if (play) {
-      g_object_set_data(G_OBJECT(eq), "hyprminimal-play", play);
-      g_signal_connect(play, "notify::icon-name", G_CALLBACK(eq_on_icon), NULL);
-      gtk_widget_set_tooltip_text(play, "Play / pause (K)");
-      GtkWidget *before = gtk_widget_get_prev_sibling(play);
-      GtkWidget *col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
-      gtk_widget_add_css_class(col, "hyprminimal-play");
-      gtk_widget_set_valign(col, GTK_ALIGN_START);
-      g_object_ref(play);
-      gtk_box_remove(GTK_BOX(row), play);
-      gtk_box_append(GTK_BOX(col), play);
-      g_object_unref(play);
-      GtkWidget *k = gtk_label_new("K");
-      gtk_widget_add_css_class(k, "key-hint");
-      gtk_widget_set_halign(k, GTK_ALIGN_CENTER);
-      gtk_widget_set_can_target(k, FALSE);
-      gtk_box_append(GTK_BOX(col), k);
-      gtk_box_insert_child_after(GTK_BOX(row), col, before);
-    }
-  }
-  eq_wake();
+  if (!play) return;
+  gtk_widget_set_tooltip_text(play, "Play / pause (K)");
+  GtkWidget *before = gtk_widget_get_prev_sibling(play);
+  GtkWidget *col = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+  gtk_widget_add_css_class(col, "hyprminimal-play");
+  gtk_widget_set_valign(col, GTK_ALIGN_START);
+  g_object_ref(play);
+  gtk_box_remove(GTK_BOX(row), play);
+  gtk_box_append(GTK_BOX(col), play);
+  g_object_unref(play);
+  GtkWidget *k = gtk_label_new("K");
+  gtk_widget_add_css_class(k, "key-hint");
+  gtk_widget_set_halign(k, GTK_ALIGN_CENTER);
+  gtk_widget_set_can_target(k, FALSE);
+  gtk_box_append(GTK_BOX(col), k);
+  gtk_box_insert_child_after(GTK_BOX(row), col, before);
 }
 
 static gboolean on_map(GSignalInvocationHint *hint, guint n, const GValue *params, gpointer data) {
@@ -404,7 +321,7 @@ static gboolean on_map(GSignalInvocationHint *hint, guint n, const GValue *param
     GtkRoot *r = gtk_widget_get_root(w);
     if (r) { cc_found(GTK_WIDGET(r)); cc_apply(); }
   }
-  if (gtk_widget_has_css_class(w, "mpris-overlay")) eq_attach(w);
+  if (gtk_widget_has_css_class(w, "mpris-overlay")) media_attach(w);
   if (GTK_IS_BUTTON(w)) set_tip(w);
   if (GTK_IS_BUTTON(w) || GTK_IS_SWITCH(w) || GTK_IS_SCALE(w) || GTK_IS_CHECK_BUTTON(w)
       || GTK_IS_DROP_DOWN(w))
