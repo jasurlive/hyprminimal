@@ -1,0 +1,69 @@
+/* Bar popups (helpers/panels.c and settings/panels.py). Tokyo Night Moon colours: themes.recolor()
+   swaps them per theme; `hyprminimal-settings --apply` writes the result to .generated/panels.css. */
+window.hyprminimal-panel { background: transparent; }
+window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0, 0, 0.01); }   /* needs real pixels or no buffer is attached */
+.panel {
+  background: rgba(31, 35, 53, 0.96); border: 1px solid #4b517a; padding: 18px 20px;
+  color: #c0caf5; box-shadow: 0 6px 18px rgba(24, 27, 42, 0.55);
+}
+.panel .big   { font-size: 40px; font-weight: 800; color: #c0caf5; }
+.panel .mid   { font-size: 18px; font-weight: 700; color: #c0caf5; }
+.panel .muted { color: #a9b1d6; }
+.panel .accent { color: #7a88cf; }
+.panel .pink  { color: #d7729f; }
+.panel .icon  { font-family: "Symbols Nerd Font"; font-size: 26px; color: #7a88cf; }
+.panel .kv-key { color: #a9b1d6; }
+.panel .kv-val { color: #c0caf5; font-weight: 700; }
+.panel .card { background: rgba(44, 49, 74, 0.6); border: 1px solid #4b517a; border-radius: 0; padding: 12px 14px; }
+.panel button.tile { background: rgba(44, 49, 74, 0.6); border: 1px solid #4b517a; border-radius: 0; padding: 8px 12px; }
+.panel button.tile:hover { background: rgba(122, 136, 207, 0.35); }
+.panel button.tile.on { background: #7a88cf; color: #1f2335; }
+.panel button.mode { padding: 8px 10px 8px 14px; font-weight: 700; }
+/* keycap like the control center's (Super+S) key hints */
+.panel .key-hint {
+  font-size: 13px; font-weight: 800; color: rgba(169, 177, 214, 0.75);
+  min-width: 14px; padding: 2px 6px; border: 1px solid rgba(169, 177, 214, 0.4); border-radius: 5px;
+}
+.panel button.tile.on .key-hint { color: rgba(31, 35, 53, 0.8); border-color: rgba(31, 35, 53, 0.45); }
+.panel button.round { border-radius: 999px; min-width: 42px; min-height: 42px; padding: 0; font-family: "Symbols Nerd Font"; font-size: 20px; }
+.panel button.round.main { background: #7a88cf; color: #1f2335; min-width: 52px; min-height: 52px; font-size: 24px; }
+.panel levelbar trough { background: #2c314a; min-height: 8px; border-radius: 0; }
+.panel levelbar block.filled { background: #7a88cf; border-radius: 0; }
+/* GTK's default offsets (low/high/full) colour blocks on their own: keep ours */
+.panel levelbar block { border: none; box-shadow: none; background-image: none; }
+.panel levelbar block.filled.high, .panel levelbar block.filled.full { background: #7a88cf; }
+.panel levelbar block.filled.low { background: #cf8f9a; }   /* dusty rose */
+.panel levelbar.high block.filled { background: #cf8f9a; }
+.panel calendar { background: transparent; border: none; color: #c0caf5; }
+.panel calendar > grid > label.today { background: #d7729f; color: #1f2335; border-radius: 0; }
+.panel calendar > grid > label:selected { background: #7a88cf; color: #1f2335; border-radius: 0; }
+.panel calendar > header { border: none; }
+.panel .icon-sm { font-family: "Symbols Nerd Font"; font-size: 18px; color: #a9b1d6; }
+.panel .caption { font-size: 12px; }
+.panel button.round.flat-icon { background: transparent; min-width: 36px; min-height: 36px; font-size: 18px; color: #a9b1d6; }
+.panel button.round.flat-icon.on { color: #d7729f; }
+.panel.compact { padding: 14px 16px; }
+.panel .card.tight { padding: 6px 6px 6px 12px; }
+.panel .pw { font-family: monospace; letter-spacing: 1px; }
+.panel .card.speed-tile { padding: 10px 12px; }
+.panel .speed { font-size: 16px; font-weight: 700; font-feature-settings: "tnum"; }
+.panel .speed-tile .icon-sm { font-size: 22px; }
+.panel button.link-btn { background: transparent; border: none; padding: 2px 0; color: #7a88cf; }
+.panel button.link-btn:hover { color: #c0caf5; }
+.panel switch { background: #2c314a; border: 1px solid #4b517a; }
+.panel switch:checked { background: #7a88cf; }
+.panel switch slider { background: #c0caf5; }
+.panel list.wifi-list { background: transparent; }
+.panel list.wifi-list > row { padding: 9px 10px; margin: 2px 0; border-radius: 10px; }
+.panel list.wifi-list > row:hover { background: rgba(122, 136, 207, 0.18); }
+.panel list.wifi-list > row.on { background: rgba(122, 136, 207, 0.30); }
+.panel .sig { font-family: "Symbols Nerd Font"; font-size: 19px; color: #7a88cf; }
+.panel button.scan-btn:disabled { color: #7a88cf; opacity: 1; font-family: "Noto Sans"; font-size: 16px; font-weight: 800; }
+.panel .net-name { font-size: 15px; font-weight: 600; }
+.panel .lock { font-size: 14px; }
+.panel .card.hotspot { padding: 10px 12px 10px 14px; }
+.panel .card.hotspot.on { background: rgba(122, 136, 207, 0.30); border-color: #7a88cf; }
+.panel .hs-icon { font-family: "Symbols Nerd Font"; font-size: 22px; color: #a9b1d6; min-width: 26px; }
+.panel .card.hotspot.on .hs-icon { color: #7a88cf; }
+.panel .hs-error { color: #d7729f; }
+.panel .wifi-pw { margin-top: 8px; background: #2c314a; border: 1px solid #4b517a; border-radius: 8px; padding: 4px 10px; }

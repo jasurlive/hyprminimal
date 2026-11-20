@@ -7,7 +7,7 @@ A Noctalia look-alike built only from official Arch packages (no AUR).
 |---|---|---|
 | Bar: workspace pills · `15 \| 17:04` · media capsule, bell, battery, ↓ speed | waybar | `waybar/`, `scripts/media.sh` |
 | Notifications (top right) | swaync | `swaync/` |
-| Control center (Super+S, or click clock/bell): Wi-Fi, System, toggles on keys 1–5, session buttons, media (also a click on the media capsule), notifications | swaync | `swaync/` |
+| Control center (Super+S, or click clock/bell): Wi-Fi, network list, System and toggles on keys 1–7, session buttons, media (also a click on the media capsule), notifications | swaync | `swaync/` |
 | Volume / brightness OSD | swayosd | `swayosd/` |
 | Launcher (Super+R); `rm NAME` + Enter uninstalls an app (pacman -Rns + cache clean, asks first) | rofi | `rofi/theme.rasi`, `helpers/launcher.c`, `scripts/remove-app.sh` |
 | Session panel (Lock, Lock & Suspend, Reboot, Shut Down, keys 1-4) | rofi | `rofi/menu.rasi`, `scripts/session.sh` |
@@ -16,7 +16,8 @@ A Noctalia look-alike built only from official Arch packages (no AUR).
 | Glass blur | Hyprland layer rules | `hypr/layerrules.lua` |
 | Settings (Super+I): bar, wallpaper, notifications, lock screen, night light, system | hyprminimal-settings | `settings/`, `settings.json` |
 | Keybinds (Super+H): search, edit, record, add, remove shortcuts | hyprminimal-settings | edits `~/.config/hypr/keybind.lua` |
-| Bar popups: click clock/date (calendar), battery (power mode), ↓ speed (network) | hyprminimal-settings | `settings/panels.py` |
+| Bar popups: click clock/date (calendar), battery (power mode), ↓ speed (network), CPU (system) | C helper (GTK4) | `helpers/panels.c` |
+| Wi-Fi network list (control center ›) | hyprminimal-settings | `settings/panels.py` |
 
 ## Settings
 
@@ -30,8 +31,11 @@ shown but must be edited in the file.
 
 ## Performance
 
-The settings app and bar popups run in one resident process started (hidden) by `hyprminimal start`, so
-Super+I, Super+H and bar clicks are a D-Bus call: about 30-80 ms to show. Bar, notifications, OSD and wallpaper
+The bar popups (calendar, battery, network, system) are one small resident C program (`helpers/panels.c`,
+GTK4 with software rendering, ~22 MB of its own, 0 wakeups while hidden). It reads `/proc` and `/sys`
+directly, gets the power mode from power-profiles-daemon over D-Bus, and the clock ticks on the second
+boundary. The settings app is started (hidden) by `hyprminimal start` too, so Super+I, Super+H and bar
+clicks are a D-Bus call: about 30-80 ms to show. Bar, notifications, OSD and wallpaper
 are native programs (C++, Vala, Rust, C) idling near 0% CPU.
 The bar's network speed and the watchdog are small C helpers (`helpers/`): no polling forks, the bar is only
 redrawn when its text changes, and nothing animates while music plays (an animated bar is redrawn and re-blurred

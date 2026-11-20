@@ -102,16 +102,30 @@ stop_one() {
   for _ in $(seq 20); do pgrep -x "$1" >/dev/null || break; sleep 0.05; done
 }
 
-# small C helpers (helpers/*.c -> .generated/bin/), rebuilt when the source is newer. Optional: without gcc
-# the bar falls back to scripts/netspeed.sh's loop and the watchdog to polling every 3 s.
+# small C helpers (helpers/*.c -> .generated/bin/), rebuilt when the source is newer. A first line
+# "// pkg-config: lib ..." adds those libraries (the GTK bar popups, helpers/panels.c). Without gcc the bar
+# falls back to scripts/netspeed.sh's loop and the watchdog to polling every 3 s; the popups need it.
 build_helpers() {
-  local src out
+  local src out libs flags
   mkdir -p "$GEN/bin"
   for src in "$DIR"/helpers/*.c; do
     out="$GEN/bin/$(basename "$src" .c)"
     [[ $out -nt $src ]] && continue
-    gcc -O2 -Wall -o "$out.tmp" "$src" 2>>"$RUN/helpers-build.log" && mv -f "$out.tmp" "$out" || rm -f "$out.tmp"
+    flags=()
+    read -r libs < "$src"
+    if [[ $libs == "// pkg-config: "* ]]; then
+      libs=${libs#// pkg-config: }
+      flags=($(pkg-config --cflags --libs $libs 2>>"$RUN/helpers-build.log") -lm) || continue
+    fi
+    gcc -O2 -Wall -o "$out.tmp" "$src" "${flags[@]}" 2>>"$RUN/helpers-build.log" && mv -f "$out.tmp" "$out" || rm -f "$out.tmp"
   done
+}
+
+# bar popups (calendar, battery, network, system) + clock click strip: helpers/panels.c, resident
+panels_quit() {
+  gdbus call --session --dest dev.hyprminimal.Panels --object-path /dev/hyprminimal/Panels \
+    --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
+  for _ in $(seq 20); do pgrep -f "^$GEN/bin/panels" >/dev/null || break; sleep 0.05; done
 }
 
 restart_one() { stop_one "$1"; start_one "$1"; }
@@ -256,8 +270,14 @@ start_components() {
   if [[ -x $GEN/bin/workspace-watch ]]; then spawn workspace-watch "$GEN/bin/workspace-watch"
   else spawn workspace-watch python3 -I "$DIR/scripts/workspace-watch.py"; fi
   [[ ${nl:-} == on ]] && spawn hyprsunset hyprsunset -t "${temp:-4000}"
-  # settings app, started hidden so Super+I / Super+H open instantly
+  # settings app, started hidden so Super+I / Super+H (and the Wi-Fi list popup) open instantly
   pgrep -f '[h]yprminimal_settings.py' >/dev/null || spawn settings "$DIR/bin/hyprminimal-settings" --preload
+  # bar popups (calendar, battery, network, system) + clock click strip: a small C program
+  if [[ -x $GEN/bin/panels ]]; then
+    pgrep -f "^$GEN/bin/panels" >/dev/null || spawn panels "$GEN/bin/panels"
+  else
+    notify critical "Bar popups unavailable" "Building helpers/panels.c failed (needs gcc, gtk4 and gtk4-layer-shell). Details: $RUN/helpers-build.log"
+  fi
   if [[ ${RENDER_ERR:-} ]]; then set_error settings "Settings could not be applied: $RENDER_ERR"; else clear_error settings; fi
   [[ ${RENDER_ERR:-} ]] && notify critical "hyprminimal: settings could not be applied" \
     "$RENDER_ERR
@@ -298,6 +318,7 @@ case ${1:-} in
   stop)
     rm -f "$RUN/active"
     stop_components
+    panels_quit
     gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
       --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
     echo "hyprminimal stopped"
@@ -309,6 +330,7 @@ case ${1:-} in
       --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
     # wait until it's really gone (up to 3 s), or start_components sees it and doesn't start a new one
     for _ in $(seq 30); do pgrep -f '[h]yprminimal_settings.py' >/dev/null || break; sleep 0.1; done
+    panels_quit                    # rebuilt from helpers/panels.c if it changed, then started again
     rm -rf "$RUN/fallback" "$ERR"
     stop_components; start_components; echo "hyprminimal restarted"
     ;;

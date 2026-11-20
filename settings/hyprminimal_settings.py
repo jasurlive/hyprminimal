@@ -250,7 +250,7 @@ def fixed_widths_css(font, T, I, W):
 
 
 def clock_zone(b, font, T, I, C, W):
-    """Where the date + clock sit on the bar, for the calendar's click area (settings/panels.py)."""
+    """Where the date + clock sit on the bar, for the calendar's click area (helpers/panels.c)."""
     spacing = 10                                          # waybar config "spacing"
     on = b["widgets"]
     parts = []
@@ -365,11 +365,27 @@ def render(s):
         if c.get("enabled", True) and c.get("command", "").strip()))
 
     render_theme(th, glass)
+    # bar popups (helpers/panels.c watches this file and restyles live; the Wi-Fi list reads the template)
+    write_if_changed(GEN / "panels.css", themes.recolor((DIR / "settings/panels.css").read_text(encoding="utf-8"), th)
+                     + (themes.glass_panels(th) if glass else "")
+                     + f'window.hyprminimal-panel {{ font-family: "{font}", "Symbols Nerd Font"; }}\n')
 
     # simple values the shell scripts read
     (GEN / "wallpaper").write_text(s["wallpaper"]["path"] + "\n")
     (GEN / "nightlight").write_text(
         f"{'on' if s['nightlight']['enabled'] else 'off'} {int(s['nightlight']['temperature'])}\n")
+
+
+def write_if_changed(path, text):
+    """Rewrite only on a real change: programs that watch the file (helpers/panels.c) reload once."""
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return
+    except OSError:
+        pass
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
 
 
 def themed_css(path, theme):
@@ -900,8 +916,6 @@ def run_gui(start_page):
             save_settings(self.s)
             if what == "theme":
                 self.get_application().restyle(self.s)
-            if what == "bar":
-                GLib.timeout_add(600, lambda: self.get_application().panels.reload_zones() or False)
             try:
                 render(self.s)
             except Exception as e:      # keep the running shell on its last rendered files
@@ -1606,16 +1620,13 @@ def run_gui(start_page):
             self.add_action(show)
             self._idle_quit = None
             self.preloaded = False
+            self._held = False
             import panels
             self.panels = panels.PanelManager(self)
             self.restyle()
             pa = Gio.SimpleAction.new("panel", GLib.VariantType.new("s"))
             pa.connect("activate", lambda _a, v: self._safe_panel(v.get_string()))
             self.add_action(pa)
-            # rofi popups (launcher, session menu): `hyprminimal-msg catch rofi` while open, `catch ""` after
-            ca = Gio.SimpleAction.new("catch", GLib.VariantType.new("s"))
-            ca.connect("activate", lambda _a, v: self.panels.catch(v.get_string()))
-            self.add_action(ca)
             # Hyprland (hypr/layerrules.lua): a click outside the popup or focus moving to a window
             pc = Gio.SimpleAction.new("panel-close", None)
             pc.connect("activate", lambda *_: self.panels.current and self.panels.close())
@@ -1647,6 +1658,14 @@ def run_gui(start_page):
             self.win._quiet = False
             self.win.show_page("last")
             self.panels.prewarm()           # bar popups too
+
+        def panel_state(self, is_open):
+            """Started for the Wi-Fi popup (not preloaded): quit a while after it and the window are closed."""
+            if self._idle_quit:
+                GLib.source_remove(self._idle_quit)
+                self._idle_quit = None
+            if not is_open and not self.preloaded and not (self.win and self.win.get_visible()):
+                self._idle_quit = GLib.timeout_add_seconds(IDLE_QUIT_SECONDS, self._quit_idle)
 
         def _safe_panel(self, kind):
             """A bar popup that throws is reported and closed; Settings and the other popups keep working."""
@@ -1716,6 +1735,8 @@ def run_gui(start_page):
 
         def _quit_idle(self):
             self._idle_quit = None
+            if self.panels.current or (self.win and self.win.get_visible()):
+                return False                  # in use again: the next close re-arms the timer
             self.quit()
             return False
             self.set_accels_for_action("app.close", ["<Ctrl>w", "<Ctrl>q"])
@@ -1723,10 +1744,10 @@ def run_gui(start_page):
         def do_command_line(self, cl):
             args = cl.get_arguments()[1:]
             if "--panel" in args and args.index("--panel") + 1 < len(args):
-                if not self.preloaded and self.win is None:
-                    self.hold()                 # stay alive for later clicks
-                    self.preloaded = True
-                self.panels.toggle(args[args.index("--panel") + 1])
+                if not self._held:
+                    self.hold()                 # alive while the popup is open; panel_state() quits later
+                    self._held = True
+                self._safe_panel(args[args.index("--panel") + 1])
                 return 0
             if "--preload" in args:
                 if self.win is None:

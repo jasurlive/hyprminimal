@@ -13,14 +13,14 @@ swaybg                    # Wallpaper setter for Wayland.
 hyprlock                  # Lock screen when manually locking the session.
 hyprsunset                # Night light: reduces blue light by adjusting display color temperature.
 
-# Settings app, bar popups (Python + GTK4)
+# Settings app, Wi-Fi list popup (Python + GTK4); the other bar popups are C (helpers/panels.c)
 python                    # Settings app, launcher.
 python-gobject            # GTK bindings for Python.
 gtk4                      # Toolkit (also headers for the swaync cursor shim).
 libadwaita                # Settings window widgets.
 gtk4-layer-shell          # Bar popups attached to the screen edge.
 gcc                       # Builds the small C helpers (helpers/, swaync/cursor/).
-pkgconf                   # Finds gtk4 flags for the swaync shim.
+pkgconf                   # Finds gtk4 flags for the swaync shim and the bar popups.
 imagemagick               # Wallpaper thumbnails.
 
 # Media and system utilities

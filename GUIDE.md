@@ -40,7 +40,10 @@ All of these are in `~/www/hyprminimal/bin/`.
 | Key | Action |
 |---|---|
 | Super+R | Launcher. Apps are numbered and the most recently used come first. Type `rm NAME` (or `rm NUMBER`) + Enter to uninstall that app: a terminal shows what will go and asks first, then runs `pacman -Rns` (app, unneeded dependencies, its /etc config), `pacman -Sc` (cache) and offers to delete its folders in ~/.config, ~/.local/share, ~/.cache. Flatpaks use `flatpak uninstall --delete-data`. |
-| Super+S | Control center: Wi-Fi, System, toggles (keys 1–5), Lock / Reboot / Shut Down, media (K: play/pause), notifications (C: clear all) |
+| Super+S | Control center: Wi-Fi, network list, System and toggles on keys 1–7, Lock / Reboot / Shut Down, media (K: play/pause), notifications (C: clear all) |
+| Super+W | Wi-Fi popup |
+| Super+D | Calendar popup |
+| Super+P | Battery / power mode popup |
 | Super+C | VS Code (`code`) |
 | Super+I | Settings |
 | Super+H | Keybinds editor |
@@ -66,15 +69,17 @@ The menu is opened from the control center. Its entries:
 3. Reboot
 4. Shut Down
 
-### Control center toggles (keys 1–5)
+### Control center keys (1–7)
 
-While the control center is open, a number key flips a toggle. Each tile shows its number in the corner.
+While the control center is open, a number key presses a tile. Each tile shows its number.
 
-1. **Wi-Fi** turns the radio on or off. The › next to it lists networks.
-2. **Bluetooth**
-3. **Caffeine** blocks sleep and lid-close until you turn it off.
-4. **Night Light** turns `hyprsunset` on or off at the temperature set in Settings.
-5. **Silent** hides notification popups. Notifications still collect in the control center.
+1. **Wi-Fi** turns the radio on or off.
+2. **›** (next to Wi-Fi) lists networks.
+3. **System** opens CPU and memory details.
+4. **Bluetooth**
+5. **Caffeine** blocks sleep and lid-close until you turn it off.
+6. **Night Light** turns `hyprsunset` on or off at the temperature set in Settings.
+7. **Silent** hides notification popups. Notifications still collect in the control center.
 
 Notifications sit under the buttons. The list opens collapsed to one card; click the
 "N notifications" header to show them all.
@@ -228,8 +233,8 @@ colour in the same role into `.generated/`. So:
   OSD, bar popups, Settings, launcher). Each sets the transparency (`alpha(@surface, 0.90)`, `0.92`, …),
   the hairline edge (`glass_edge()`) and the corner radii.
 
-**Calendar click area.** An invisible strip from the Settings process sits over the date and clock
-(`ClockZone` in `settings/panels.py`): a click toggles the calendar, a right click opens the control center.
+**Calendar click area.** An invisible strip from the bar popup program sits over the date and clock
+(`reload_zones()` in `helpers/panels.c`): a click toggles the calendar, a right click opens the control center.
 Its size comes from `.generated/clock_zone.json`, recalculated whenever the bar's text, font or widgets
 change. Nothing on the bar reacts to hovering: tooltips are off, info opens on click.
 
@@ -281,7 +286,7 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 | `brightness +5` / `brightness -5` | Change the brightness |
 | `caffeine` | Toggle Caffeine |
 | `nightlight` | Toggle Night Light |
-| `panel calendar\|battery\|network` | Open a bar popup |
+| `panel calendar\|battery\|network\|system` | Open a bar popup (`wifi`: the network list) |
 
 ---
 
@@ -306,7 +311,9 @@ Log files:
 | `swaync.log` | Notifications and control center |
 | `swayosd.log` | Volume/brightness OSD |
 | `swaybg.log` | Wallpaper |
-| `settings.log` | Settings app and bar popups |
+| `settings.log` | Settings app and the Wi-Fi list popup |
+| `panels.log` | Bar popups (calendar, battery, network, system) and the clock click strip |
+| `helpers-build.log` | Build of the C helpers (`helpers/*.c`, incl. the bar popups) |
 | `watchdog.log` | Watchdog |
 | `shim-build.log` | Build of the control center shim (cursor, tooltips, keys, live labels) |
 
