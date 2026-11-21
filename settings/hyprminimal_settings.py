@@ -6,6 +6,7 @@
                                       startup, nightlight, keybinds, system, about);
                                       without it, the page you had open last
     hyprminimal-settings --apply         regenerate configs from settings.json (no window)
+    hyprminimal-settings --toggle-bar    flip Bar → Hide bar and regenerate (no restart; Super+M signals waybar)
 """
 import copy
 import json
@@ -75,6 +76,7 @@ DEFAULTS = {
     "bar": {
         "font_size": 16, "icon_size": 20, "clock_size": 18, "font_weight": 500,   # one type scale
         "clock_24h": True,
+        "hidden": False,          # bar off: waybar starts hidden (no exclusive zone), windows use the full screen
         "widgets": {
             "workspaces": True, "date": True, "clock": True,
             "media": True, "notifications": True, "wifi": False, "bluetooth": False,
@@ -423,6 +425,7 @@ def render(s):
     wb["height"] = BAR_HEIGHT
     wb.pop("margin-bottom", None)
     wb["margin-top"] = 4
+    wb["start_hidden"] = bool(b.get("hidden"))
     cols = {"left": [], "center": [], "right": []}
     for key, _label, side in WIDGET_LABELS:
         if b["widgets"].get(key):
@@ -590,6 +593,15 @@ def apply_theme(s):
     sh("hyprctl", "reload")
     if hyprminimal_active():
         sh(str(DIR / "bin" / "hyprminimal"), "respawn", "swayosd-server")
+
+
+def toggle_bar_hidden(s):
+    """Super+M (bin/hyprminimal-msg bar) already showed/hid the running bar: save the new state and
+    render it into waybar.json (start_hidden), without restarting waybar."""
+    s["bar"]["hidden"] = not s["bar"].get("hidden")
+    save_settings(s)
+    render(s)
+    return s["bar"]["hidden"]
 
 
 # live reload of running components (only while hyprminimal is active)
@@ -1124,6 +1136,8 @@ def run_gui(start_page):
             r = Adw.SwitchRow(title=title, subtitle=sub or "", active=bool(self.s[sect][key]))
 
             def on(row, _p):
+                if getattr(self, "_syncing_bar", False):
+                    return
                 self.s[sect][key] = row.get_active()
                 self.changed(what)
             r.connect("notify::active", on)
@@ -1262,6 +1276,10 @@ def run_gui(start_page):
 
         def page_bar(self):
             p = Adw.PreferencesPage()
+            gv = self.group(p, "Visibility")
+            self.hide_bar_row = self.switch(gv, "Hide bar", "bar", "hidden", "bar",
+                                            "Windows use the full screen; widgets and their popups are gone "
+                                            "until turned back on. Super+M toggles it.")
             gt = self.group(p, "Text and icons", "One scale for the whole bar: every label uses the text size, "
                                                 "every icon the icon size, all with the same weight.")
             self.spin(gt, "Text size", "bar", "font_size", 11, 24, 1, "bar", "pixels")
@@ -1697,9 +1715,27 @@ def run_gui(start_page):
             pc = Gio.SimpleAction.new("panel-close", None)
             pc.connect("activate", lambda *_: self.panels.current and self.panels.close())
             self.add_action(pc)
+            # Super+M (bin/hyprminimal-msg bar): the bar was just shown/hidden, save that
+            bt = Gio.SimpleAction.new("bar-toggled", None)
+            bt.connect("activate", lambda *_: self._bar_toggled())
+            self.add_action(bt)
             quit_a = Gio.SimpleAction.new("quit", None)
             quit_a.connect("activate", lambda *_: self.quit())
             self.add_action(quit_a)
+
+        def _bar_toggled(self):
+            w = self.win
+            s = w.s if w else load_settings()
+            try:
+                hidden = toggle_bar_hidden(s)
+            except Exception as e:
+                write_error("settings", f"{type(e).__name__}: {e}")
+                return
+            row = getattr(w, "hide_bar_row", None) if w else None
+            if row and row.get_active() != hidden:   # sync the switch without its handler (= no bar restart)
+                w._syncing_bar = True
+                row.set_active(hidden)
+                w._syncing_bar = False
 
         def restyle(self, s=None):
             """Theme the Settings window and the bar popups (live, no restart)."""
@@ -1878,6 +1914,9 @@ def run_gui(start_page):
 
 
 def main():
+    if "--toggle-bar" in sys.argv:
+        toggle_bar_hidden(load_settings())
+        return 0
     if "--apply" in sys.argv:
         s = load_settings()
         if not SETTINGS.exists():

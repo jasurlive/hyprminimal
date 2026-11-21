@@ -24,6 +24,7 @@ local KEY = {
 	CALENDAR = ("%s + D"):format(mainMod),
 	BATTERY = ("%s + P"):format(mainMod),
 	SESSION = ("%s + ESCAPE"):format(mainMod),
+	BAR = ("%s + M"):format(mainMod),
 
 	CLOSE = ("%s + Q"):format(mainMod),
 	FLOAT = ("%s + V"):format(mainMod),
@@ -79,6 +80,7 @@ hl.bind(KEY.WIFI, hl.dsp.exec_cmd(SHELLMSG .. " panel network"), { description =
 hl.bind(KEY.CALENDAR, hl.dsp.exec_cmd(SHELLMSG .. " panel calendar"), { description = "Toggle calendar popup" })
 hl.bind(KEY.BATTERY, hl.dsp.exec_cmd(SHELLMSG .. " panel battery"), { description = "Toggle battery popup" })
 hl.bind(KEY.SESSION, hl.dsp.exec_cmd(SHELLMSG .. " session"), { description = "Session menu" })
+hl.bind(KEY.BAR, hl.dsp.exec_cmd(SHELLMSG .. " bar"), { description = "Toggle bar" })
 
 -- 3. Window Management
 hl.bind(KEY.CLOSE, hl.dsp.window.close(), { description = "Close window" })

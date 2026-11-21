@@ -12,8 +12,9 @@
 // Built by bin/hyprminimal on start: gcc -shared -fPIC $(pkg-config --cflags --libs gtk4) -lm
 #include <gtk/gtk.h>
 #include <string.h>
+#include <glib/gstdio.h>
 
-#define LIST_COLLAPSED 76    // px of notification list: one card
+#define LIST_COLLAPSED 190   // px of notification list before it is laid out; then: the first entry's height
 #define LIST_EXPANDED 560
 
 static GPtrArray *tips;      // pairs: needle, text
@@ -135,6 +136,161 @@ static void key_after(GtkWidget *b, const char *key) {
   gtk_box_append(GTK_BOX(box), k);
 }
 
+// collapsed list = the first entry in full: a lone notification, or an app's group (its header and the
+// stacked cards swaync shows while the group is collapsed), however many lines it wraps to.
+// 0 while nothing is laid out yet
+static int first_entry_bottom(GtkWidget *listbox, GtkWidget *row) {
+  graphene_rect_t r;
+  if (row && gtk_widget_compute_bounds(row, listbox, &r) && r.size.height > 1)
+    return (int)(r.origin.y + r.size.height + 0.999f);
+  return 0;
+}
+
+// An app's group expand button and the list height work together: expanding a group grows the list
+// (writes "expanded", like the "N notifications" header), collapsing the last open group shrinks it.
+// The header opens/closes everything: expanding it expands every group, shrinking the list (header, or
+// the panel opening) collapses them.
+static gboolean group_open(GtkWidget *g) { return !gtk_widget_has_css_class(g, "collapsed"); }
+
+static void find_groups(GtkWidget *w, GPtrArray *out) {
+  if (gtk_widget_has_css_class(w, "notification-group")) { g_ptr_array_add(out, w); return; }
+  for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) find_groups(c, out);
+}
+
+static GtkWidget *find_class(GtkWidget *w, const char *cls) {
+  if (gtk_widget_has_css_class(w, cls)) return w;
+  for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) {
+    GtkWidget *r = find_class(c, cls);
+    if (r) return r;
+  }
+  return NULL;
+}
+
+// Expanding keeps the list where it was (swaync scrolls to the end while rows grow): hold the scroll
+// position for the length of the expand animation. From the header that is the top.
+static GtkWidget *cur_list;   // the notification list's scrolled window, once seen
+static double pin_value;
+static gint64 pin_until;
+static guint pin_id;
+
+static gboolean pin_tick(GtkWidget *sw, GdkFrameClock *clock, gpointer d) {
+  (void)d;
+  GtkAdjustment *adj = gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(sw));
+  if (gtk_adjustment_get_value(adj) != pin_value) gtk_adjustment_set_value(adj, pin_value);
+  if (gdk_frame_clock_get_frame_time(clock) < pin_until) return G_SOURCE_CONTINUE;
+  pin_id = 0;
+  return G_SOURCE_REMOVE;
+}
+
+static void hold_scroll(gboolean top) {   // top: from the header; else where the list is now
+  if (!cur_list) return;
+  if (top) pin_value = 0;
+  else if (!pin_id) pin_value = gtk_adjustment_get_value(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(cur_list)));
+  pin_until = g_get_monotonic_time() + 600 * 1000;
+  if (!pin_id) pin_id = gtk_widget_add_tick_callback(cur_list, pin_tick, NULL, NULL);
+}
+
+static gboolean by_group;   // the "expanded" change came from a group's own button: leave other groups be
+
+static void set_expanded(gboolean on) {
+  char *ex = g_build_filename(ccdir, "expanded", NULL);
+  gboolean now = g_file_test(ex, G_FILE_TEST_EXISTS);
+  if (on && !now) { by_group = TRUE; g_file_set_contents(ex, "", 0, NULL); }
+  else if (!on && now) { by_group = TRUE; g_unlink(ex); }
+  g_free(ex);
+}
+
+static void on_group_classes(GtkWidget *g, GParamSpec *p, gpointer d) {
+  (void)p; (void)d;
+  gboolean open = group_open(g);
+  if (open == GPOINTER_TO_INT(g_object_get_data(G_OBJECT(g), "hyprminimal-open"))) return;   // other class
+  g_object_set_data(G_OBJECT(g), "hyprminimal-open", GINT_TO_POINTER(open));
+  if (open) { hold_scroll(FALSE); set_expanded(TRUE); return; }
+  GPtrArray *groups = g_ptr_array_new();   // collapsed: shrink the list once no group is open
+  if (cc) find_groups(cc, groups);
+  gboolean any = FALSE;
+  for (guint i = 0; i < groups->len; i++) any = any || group_open(groups->pdata[i]);
+  g_ptr_array_free(groups, TRUE);
+  if (!any) set_expanded(FALSE);
+}
+
+// a collapsed group hides its header buttons: expand it the way a click on its stack does, through the
+// group's own click gesture (on a box inside it; swaync's toggle function isn't exported). Never on the
+// cards themselves (SwayNotificationCenterExpandableGroup): a click there opens/dismisses a notification.
+static gboolean click_gesture(GtkWidget *w) {
+  GListModel *ctl = gtk_widget_observe_controllers(w);
+  gboolean done = FALSE;
+  for (guint i = 0, n = g_list_model_get_n_items(ctl); i < n && !done; i++) {
+    GObject *c = g_list_model_get_item(ctl, i);
+    if (GTK_IS_GESTURE_CLICK(c)) {
+      double x = gtk_widget_get_width(w) / 2.0, y = gtk_widget_get_height(w) / 2.0;
+      g_signal_emit_by_name(c, "pressed", 1, x, y);
+      g_signal_emit_by_name(c, "released", 1, x, y);
+      done = TRUE;
+    }
+    g_object_unref(c);
+  }
+  g_object_unref(ctl);
+  return done;
+}
+
+static gboolean click_group(GtkWidget *w, int depth) {
+  if (depth > 4 || !strcmp(G_OBJECT_TYPE_NAME(w), "SwayNotificationCenterExpandableGroup")) return FALSE;
+  if (click_gesture(w)) return TRUE;
+  for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c))
+    if (click_group(c, depth + 1)) return TRUE;
+  return FALSE;
+}
+
+static void sync_groups(GtkWidget *list, gboolean expanded) {
+  static int was = -1;   // list state last time: act on the header's changes only, once
+  gboolean header = was != (int)expanded && !by_group;
+  if (header && expanded) hold_scroll(TRUE);
+  was = expanded;
+  by_group = FALSE;
+  GPtrArray *groups = g_ptr_array_new();
+  find_groups(list, groups);
+  for (guint i = 0; i < groups->len; i++) {
+    GtkWidget *g = groups->pdata[i];
+    if (!g_object_get_data(G_OBJECT(g), "hyprminimal-watched")) {
+      g_object_set_data(G_OBJECT(g), "hyprminimal-watched", GINT_TO_POINTER(1));
+      g_object_set_data(G_OBJECT(g), "hyprminimal-open", GINT_TO_POINTER(group_open(g)));
+      g_signal_connect(g, "notify::css-classes", G_CALLBACK(on_group_classes), NULL);
+    }
+    if (!expanded && group_open(g)) {
+      GtkWidget *b = find_class(g, "notification-group-collapse-button");
+      if (b) gtk_widget_activate(b);
+    } else if (expanded && header && !group_open(g)) click_group(g, 0);
+  }
+  g_ptr_array_free(groups, TRUE);
+}
+
+// swaync animates groups collapsing/expanding and new arrivals: follow the first entry's height every
+// frame for a moment after each change, so the collapsed list ends exactly at its bottom
+static gint64 follow_until;
+static guint follow_id;
+static GtkWidget *follow_list;
+
+static gboolean follow_tick(GtkWidget *listbox, GdkFrameClock *clock, gpointer d) {
+  (void)d;
+  int b = first_entry_bottom(listbox, gtk_widget_get_first_child(listbox));
+  if (b > 0 && follow_list) gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(follow_list), MIN(b, LIST_EXPANDED));
+  if (gdk_frame_clock_get_frame_time(clock) < follow_until) return G_SOURCE_CONTINUE;
+  follow_id = 0;
+  return G_SOURCE_REMOVE;
+}
+
+static void follow_first_entry(GtkWidget *list, GtkWidget *listbox) {
+  follow_list = list;
+  follow_until = g_get_monotonic_time() + 800 * 1000;
+  if (!follow_id) follow_id = gtk_widget_add_tick_callback(listbox, follow_tick, NULL, NULL);
+}
+
+static void stop_following(GtkWidget *listbox) {
+  if (follow_id && listbox) gtk_widget_remove_tick_callback(listbox, follow_id);
+  follow_id = 0;
+}
+
 // labels file, badges, centred two-line labels, list height: cheap, run on show and on file changes
 static void cc_apply(void) {
   if (!cc) return;
@@ -183,13 +339,21 @@ static void cc_apply(void) {
   }
   if (list) {
     // nothing listed: hide the whole notification area (the header says "No notifications")
-    GtkWidget *rows = NULL, *area = gtk_widget_get_ancestor(list, GTK_TYPE_STACK);
+    GtkWidget *rows = NULL, *listbox = NULL, *area = gtk_widget_get_ancestor(list, GTK_TYPE_STACK);
     area = area ? gtk_widget_get_parent(area) : NULL;
     for (GtkWidget *c = gtk_widget_get_first_child(list); c && !rows; c = gtk_widget_get_first_child(c))
-      if (gtk_widget_has_css_class(c, "control-center-list")) rows = gtk_widget_get_first_child(c);
+      if (gtk_widget_has_css_class(c, "control-center-list")) { listbox = c; rows = gtk_widget_get_first_child(c); }
     if (area) gtk_widget_set_visible(area, rows != NULL);
+    cur_list = list;
+    sync_groups(list, expanded);
+    int h = LIST_EXPANDED;
+    if (!expanded) {
+      int b = listbox ? first_entry_bottom(listbox, rows) : 0;
+      h = b > 0 ? MIN(b, LIST_EXPANDED) : LIST_COLLAPSED;
+      if (listbox && rows) follow_first_entry(list, listbox);   // then every frame until it settles
+    } else stop_following(listbox);
     gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(list), TRUE);
-    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(list), expanded ? LIST_EXPANDED : LIST_COLLAPSED);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(list), h);
     gtk_widget_set_vexpand(list, FALSE);
   }
   gtk_widget_queue_resize(cc);   // re-measure with the new labels and sizes

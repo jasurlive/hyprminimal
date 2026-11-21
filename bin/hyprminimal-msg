@@ -83,5 +83,11 @@ case $cmd in
                   page=general
                   for f in "${XDG_RUNTIME_DIR:-/tmp}"/hyprminimal/errors/*; do [[ -f $f ]] && { page=${P[${f##*/}]:-general}; break; }; done
                   exec "$DIR/bin/hyprminimal-settings" --page "$page" ;;
+  bar)            # Super+M: show/hide the bar now (waybar SIGUSR1, no restart; pidof ~10 ms vs pkill ~60),
+                  # then save it (Settings → Bar → Hide bar) so the bar starts that way next time
+                  pid=$(pidof -s waybar) && kill -USR1 "$pid"
+                  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
+                    --method org.gtk.Actions.Activate bar-toggled "[]" "{}" >/dev/null 2>&1 && exit 0
+                  exec "$DIR/bin/hyprminimal-settings" --toggle-bar ;;
   cheatsheet)     exec "$DIR/bin/hyprminimal-settings" --page keybinds ;;
 esac

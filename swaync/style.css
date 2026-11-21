@@ -143,8 +143,9 @@ button.toggle:checked .key-hint { color: alpha(@on_primary, 0.8); border-color: 
 .control-center .notification-row .notification-background {
   background: none; border: none; box-shadow: none; padding: 0; margin: 0;
 }
-.control-center .notification { margin: 0 0 6px 0; box-shadow: none; background-color: alpha(@surface_var, 0.6); border-radius: 12px; }
-.control-center .notification-content { padding: 10px 12px; }
+/* opaque (same colour as alpha(@surface_var, 0.6) on the panel): a collapsed group stacks its cards */
+.control-center .notification { margin: 0 0 8px 0; box-shadow: none; background-color: mix(@surface, @surface_var, 0.6); border-radius: 12px; }
+.control-center .notification-content { padding: 12px 14px; }
 .control-center .summary { font-size: 14px; }
 .control-center .body { font-size: 13px; }
 .control-center .app-name, .control-center .time { font-size: 11px; }
@@ -152,13 +153,15 @@ button.toggle:checked .key-hint { color: alpha(@on_primary, 0.8); border-color: 
 .control-center .notification-group .notification-group-headers,
 .control-center .notification-group .notification-group-buttons { padding: 0; margin-left: 0; margin-right: 0; }
 .control-center scrolledwindow, .control-center list, .control-center listview { padding: 0; margin: 0; }
-/* swaync insets the list: pull the cards out so their edges line up with the tiles above */
-.control-center .notification-group { margin: 0 -4px 0 -28px; }
+/* swaync insets the list (default .widget margin + padding): zero it so card edges line up with the tiles above */
+.control-center .notification-group { margin: 0; }
+.control-center .notification-group.collapsed.not-expanded { opacity: 1; }   /* swaync dims the rest while a group is open */
+.control-center .widget-notifications { margin: 0; padding: 0; }   /* swaync default .widget: 8px margin + 8px padding */
 
 /* grouped notifications: header row with the app name on the left and the collapse / close buttons on
    the right, rounded like "Clear all", spaced apart and kept inside the panel instead of jammed at the edge */
-.control-center .notification-group .notification-group-headers { margin: 0 0 6px 12px; }
-.control-center .notification-group .notification-group-buttons { margin: 0 0 6px 0; }
+.control-center .notification-group .notification-group-headers { margin: 8px 0 8px 12px; }
+.control-center .notification-group .notification-group-buttons { margin: 8px 0 8px 0; }
 .control-center .notification-group .notification-group-buttons button {
   opacity: 1; min-width: 30px; min-height: 30px; padding: 0; margin: 0 0 0 6px;
   background: alpha(@surface_var, 0.6); color: @on_surface; border: 1px solid @outline;

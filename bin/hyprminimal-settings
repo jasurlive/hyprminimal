@@ -6,7 +6,7 @@ DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 if [[ $1 == --panel && $2 =~ ^[a-z]+$ ]]; then
   gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
     --method org.gtk.Actions.Activate panel "[<'$2'>]" "{}" >/dev/null 2>&1 && exit 0
-elif [[ $1 != --apply && $1 != --preload && $1 != -h && $1 != --help ]]; then
+elif [[ $1 != --apply && $1 != --toggle-bar && $1 != --preload && $1 != -h && $1 != --help ]]; then
   page=last   # no --page: reopen on the page shown last
   [[ $1 == --page && -n ${2:-} ]] && page=$2
   [[ $page =~ ^[a-z]+$ ]] || page=last
