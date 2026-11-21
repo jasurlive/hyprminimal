@@ -10,6 +10,9 @@ swayosd                   # On-screen display for volume, brightness, and media 
 
 # Hyprland session management
 hyprlock                  # Lock screen when manually locking the session.
+greetd                    # Login daemon on tty1 (bin/hyprminimal-greeter).
+cage                      # Tiny kiosk compositor the login screen runs in.
+json-c                    # greetd messages in greeter/greeter.c (built at install).
 hyprsunset                # Night light: reduces blue light by adjusting display color temperature.
 
 # Settings app, Wi-Fi list popup (Python + GTK4); the other bar popups are C (helpers/panels.c)

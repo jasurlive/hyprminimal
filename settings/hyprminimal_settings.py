@@ -489,6 +489,10 @@ def render(s):
     lock = lock.replace("$font     = Noto Sans", f"$font     = {font}")
     lock = themes.recolor(lock, th)
     (GEN / "hyprlock.conf").write_text(lock, encoding="utf-8")
+    # the login screen (bin/hyprminimal-greeter) reads its own copy; install made it ours, so the theme follows
+    greeter = Path("/usr/local/share/hyprminimal-greeter/hyprlock.conf")
+    if os.access(greeter, os.W_OK):
+        greeter.write_text(lock, encoding="utf-8")
 
     # also at the default path, so a bare `hyprlock` (typed, or started by another app)
     # finds the same config instead of failing with "No config found". Never replaces a real file.

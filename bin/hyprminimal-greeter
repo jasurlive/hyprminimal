@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# hyprminimal-greeter install|uninstall|status: the lock screen as the login screen (greetd + cage + greeter/greeter.c).
+# Replaces the TTY login on tty1. Needs root: sudo hyprminimal-greeter install
+# Colours and font follow your theme (Settings rewrites the greeter copy of hyprlock.conf). Re-run after editing greeter.c.
+set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+DEST=/usr/local/share/hyprminimal-greeter STATE=/var/cache/hyprminimal-greeter
+CONF=/etc/greetd/config.toml BAK=/etc/greetd/config.toml.pre-hyprminimal-greeter
+OWNER=${SUDO_USER:-$(stat -c %U "$DIR")}
+
+# keyboard layout from the Hyprland input config, so the password types the same as in the session
+kb() { awk -F'"' -v k="$1" '$0 ~ k" *=" { print $2; exit }' "$DIR/hypr/config/inputs.lua" 2>/dev/null; }
+
+case ${1:-status} in
+  install)
+    [[ $EUID == 0 ]] || { echo "run with sudo"; exit 1; }
+    command -v cage >/dev/null || pacman -S --needed --noconfirm cage
+    command -v greetd >/dev/null || pacman -S --needed --noconfirm greetd
+    id greeter >/dev/null 2>&1 || { echo "no 'greeter' user (comes with the greetd package)"; exit 1; }
+
+    install -d -m 755 "$DEST"
+    tmp=$(mktemp)
+    gcc -O2 -Wall -o "$tmp" "$DIR/greeter/greeter.c" $(pkg-config --cflags --libs gtk4 json-c)
+    install -m 755 "$tmp" "$DEST/greeter"; rm -f "$tmp"
+    lock="$DIR/.generated/hyprlock.conf"; [[ -f $lock ]] || lock="$DIR/hyprlock/hyprlock.conf"
+    # owned by you: Settings rewrites it on every theme change, so the login screen follows the theme
+    install -m 644 -o "$OWNER" "$lock" "$DEST/hyprlock.conf"
+    install -d -m 755 -o greeter -g greeter "$STATE"
+    [[ -s $STATE/last-user ]] || { echo "$OWNER" > "$STATE/last-user"; chown greeter: "$STATE/last-user"; }
+
+    layout=$(kb kb_layout); variant=$(kb kb_variant); options=$(kb kb_options)
+    run="$DEST/run"
+    cat > "$run" <<EOF
+#!/bin/sh
+# started by greetd as the greeter user: cage shows the greeter on the last connected monitor, exits with it
+export XKB_DEFAULT_LAYOUT='${layout:-us}' XKB_DEFAULT_VARIANT='$variant' XKB_DEFAULT_OPTIONS='$options'
+export XDG_CACHE_HOME=$STATE GSK_RENDERER=gl
+exec cage -s -m last -- $DEST/greeter
+EOF
+    chmod 755 "$run"
+
+    [[ -f $BAK || ! -f $CONF ]] || cp -p "$CONF" "$BAK"
+    cat > "$CONF" <<EOF
+# hyprminimal: greetd shows the hyprminimal login screen (the lock screen look) on tty1.
+# Installed by: sudo hyprminimal-greeter install   (undo: sudo hyprminimal-greeter uninstall)
+[terminal]
+vt = 1
+
+[default_session]
+command = "$run"
+user = "greeter"
+EOF
+    chmod 644 "$CONF"
+    systemctl enable greetd.service
+    echo "greeter installed: tty1 shows it from the next boot (or now: sudo systemctl restart greetd, ends this session)."
+    echo "undo: sudo $0 uninstall" ;;
+  uninstall)
+    [[ $EUID == 0 ]] || { echo "run with sudo"; exit 1; }
+    systemctl disable greetd.service 2>/dev/null || true
+    if [[ -f $BAK ]]; then mv "$BAK" "$CONF"; fi
+    rm -rf "$DEST" "$STATE"
+    echo "greeter removed: tty1 is the TTY login again from the next boot." ;;
+  status)
+    [[ -x $DEST/greeter ]] && grep -qs "$DEST/run" "$CONF" && echo "greeter: installed" || echo "greeter: not installed"
+    systemctl is-enabled greetd.service 2>/dev/null | sed 's/^/greetd: /' ;;
+  *) echo "usage: $0 install|uninstall|status"; exit 2 ;;
+esac

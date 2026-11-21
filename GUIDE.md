@@ -35,6 +35,23 @@ All of these are in `~/www/hyprminimal/bin/`.
 [[sh -c '"$HOME/www/hyprminimal/bin/hyprminimal" start']],
 ```
 
+### Login screen
+
+tty1 shows the lock screen as a login screen (greetd → cage → `greeter/greeter.c`, a small GTK4 program):
+clock, date, the user (↑/↓ or the arrows switch users) and a password field, then Hyprland starts.
+Colours, font and sizes come from your theme's `hyprlock.conf`: Settings rewrites the greeter's copy
+(`/usr/local/share/hyprminimal-greeter/hyprlock.conf`, owned by you) on every theme change.
+
+```sh
+sudo ~/.local/share/hyprminimal/bin/hyprminimal-greeter install     # also after editing greeter.c
+sudo ~/.local/share/hyprminimal/bin/hyprminimal-greeter uninstall   # back to the TTY login
+~/.local/share/hyprminimal/bin/hyprminimal-greeter status
+```
+
+Preview without logging out: `gcc -o /tmp/g greeter/greeter.c $(pkg-config --cflags --libs gtk4 json-c) &&
+GREETER_CONF=.generated/hyprlock.conf /tmp/g --test` (password `test`, Esc quits).
+`./install.sh --tty-login` keeps the plain TTY login instead.
+
 ### Keys
 
 | Key | Action |
