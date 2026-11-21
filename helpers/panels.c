@@ -1644,6 +1644,27 @@ static void launcher_build(Panel *p, GtkWidget *body) {
     if (launcher_stale()) launcher_rebuild();
 }
 
+static void launcher_set_pitch(int h) {
+    L.row_h = h;
+    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(L.scroll), h * LAUNCHER_LINES);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(L.scroll), h * LAUNCHER_LINES);
+}
+
+// row pitch = distance between the tops of rows 0 and 1 as laid out (height + margin), runs once per open
+static gboolean launcher_fix_pitch(GtkWidget *w, GdkFrameClock *fc, gpointer u) {
+    (void)fc; (void)u;
+    GtkListBoxRow *r0 = gtk_list_box_get_row_at_index(GTK_LIST_BOX(w), 0),
+                  *r1 = gtk_list_box_get_row_at_index(GTK_LIST_BOX(w), 1);
+    graphene_point_t a, b;
+    if (!r0 || !r1 || !gtk_widget_get_height(GTK_WIDGET(r1))) return G_SOURCE_REMOVE;
+    if (gtk_widget_compute_point(GTK_WIDGET(r0), w, &GRAPHENE_POINT_INIT(0, 0), &a) &&
+        gtk_widget_compute_point(GTK_WIDGET(r1), w, &GRAPHENE_POINT_INIT(0, 0), &b)) {
+        int pitch = (int)(b.y - a.y + 0.5);
+        if (pitch > 0 && pitch != L.row_h) launcher_set_pitch(pitch);
+    }
+    return G_SOURCE_REMOVE;
+}
+
 static void launcher_opened(Panel *p) {
     (void)p;
     read_recent();
@@ -1651,16 +1672,14 @@ static void launcher_opened(Panel *p) {
     gtk_editable_set_text(GTK_EDITABLE(L.text), "");
     g_signal_handlers_unblock_by_func(L.text, on_query, NULL);
     launcher_filter();
-    // always LAUNCHER_LINES rows tall, so the box never jumps while typing
+    // always exactly LAUNCHER_LINES rows tall (no half rows, so the selection is never clipped at the edges)
     if (L.apps->len) {
         int mn, nat;
         GtkWidget *row = ((LApp *)g_ptr_array_index(L.apps, 0))->row;
         gtk_widget_measure(row, GTK_ORIENTATION_VERTICAL, -1, &mn, &nat, NULL, NULL);
-        if (nat > 0 && nat != L.row_h) {
-            L.row_h = nat;
-            gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(L.scroll), nat * LAUNCHER_LINES);
-            gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(L.scroll), nat * LAUNCHER_LINES);
-        }
+        if (!L.row_h && nat > 0) launcher_set_pitch(nat);
+        // the measure misses the row margin and rounding: correct it from the real layout after the first frame
+        gtk_widget_add_tick_callback(L.list, launcher_fix_pitch, NULL, NULL);
     }
     gtk_widget_grab_focus(L.text);
 }

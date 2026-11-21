@@ -65,7 +65,7 @@ tooltip label { color: @on_surface_var; }
 #custom-net.offline { color: @outline; }
 
 /* optional widgets */
-#cpu, #memory, #pulseaudio, #network.wifi, #bluetooth, #tray { color: @on_surface; }
+#pulseaudio, #network.wifi, #bluetooth, #tray { color: @on_surface; }
 #pulseaudio.muted, #bluetooth.off, #bluetooth.disabled { color: @outline; }
 
 /* a part of hyprminimal failed (scripts/errors.sh): red pill, click opens Settings on that part */
