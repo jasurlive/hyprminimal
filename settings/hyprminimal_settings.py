@@ -406,8 +406,9 @@ def clock_zone(b, font, T, I, C, W):
     if on.get("clock"):
         parts.append(text_px("88:88" if b["clock_24h"] else "88:88 PM", font, C, W))
     width = sum(parts) + spacing * max(0, len(parts) - 1)
+    # bar hidden: no strip at all (width 0 = panels.c makes none), or clicks there would open the calendar
     zone = {"position": "top", "height": BAR_HEIGHT, "margin": 4,
-            "width": width + 24 if parts else 0, "offset": 0}
+            "width": width + 24 if parts and not b.get("hidden") else 0, "offset": 0}
     (GEN / "clock_zone.json").write_text(json.dumps(zone) + "\n")
 
 
