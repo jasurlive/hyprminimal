@@ -30,8 +30,6 @@ local exec_once = {
     "dbus-update-activation-environment --systemd --all",
     "systemctl --user start hyprpolkitagent",
     "gnome-keyring-daemon --start --components=secrets",
-    "gsettings set org.gnome.desktop.interface color-scheme prefer-dark",
-    "gsettings set org.gnome.desktop.interface gtk-theme Adwaita-dark",
     "gsettings set org.gnome.desktop.interface icon-theme Papirus-Dark",
     "gsettings set org.gnome.desktop.interface cursor-theme Adwaita",
     "wl-clip-persist --clipboard regular",

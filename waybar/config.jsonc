@@ -15,10 +15,6 @@
   "modules-right":  ["custom/media", "custom/notification", "battery", "custom/net"],
 
   // optional widgets (turned on/off in hyprminimal-settings → Bar)
-  "cpu":    { "cursor": true, "tooltip": false, "interval": 5, "format": "<span size='120%'>󰓅</span>  {usage}%", "on-click": "hyprminimal-msg panel system" },
-  "memory": {
-    "cursor": true, "interval": 5, "format": "<span size='120%'>󰍛</span>  {used:0.1f}G",
-              "tooltip": false, "on-click": "hyprminimal-msg panel system" },
   "pulseaudio": {
     "cursor": true,
     "format": "<span size='120%'>{icon}</span>", "format-muted": "<span size='120%'>󰝟</span>",

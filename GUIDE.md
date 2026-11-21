@@ -107,8 +107,6 @@ Any key that is missing from the file falls back to its default.
 ### Bar
 | Setting | Key | Range / values | Default |
 |---|---|---|---|
-| Position | `bar.position` | `top`, `bottom` | `top` |
-| Height | `bar.height` | 28–72 px | 45 |
 | Text size | `bar.font_size` | 11–24 px | 16 |
 | Icon size | `bar.icon_size` | 12–32 px | 20 |
 | Clock size | `bar.clock_size` | 11–32 px | 18 |
@@ -120,7 +118,7 @@ Any key that is missing from the file falls back to its default.
 | Side | Widgets |
 |---|---|
 | Left | `workspaces` |
-| Center | `cpu`, `ram`, `date`, `clock` |
+| Center | `date`, `clock` |
 | Right | `media`, `notifications`, `wifi`, `bluetooth`, `volume`, `tray`, `battery`, `network_speed` |
 
 `tray` shows the icons of apps that offer one, such as Telegram, Discord or Steam.
@@ -203,7 +201,6 @@ See [section 3](#3-keybinds).
   | Audio | `pavucontrol` |
   | Displays | `nwg-displays` |
   | Bluetooth | `blueman-manager` |
-  | Appearance | `nwg-look` |
 
   If a tool isn't installed, Settings tells you so.
 
@@ -242,8 +239,9 @@ colour in the same role into `.generated/`. So:
 Its size comes from `.generated/clock_zone.json`, recalculated whenever the bar's text, font or widgets
 change. Nothing on the bar reacts to hovering: tooltips are off, info opens on click.
 
-**Other apps.** GTK apps follow `gsettings` (`color-scheme prefer-dark`, set at login by `startup.lua` and on
-every theme change) and `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
+**Other apps.** GTK apps follow the theme's light or dark mode: on every theme change (and at the first start)
+Settings sets `gsettings` `color-scheme` and `gtk-theme` (`adw-gtk3` / `adw-gtk3-dark`, so GTK3 apps like
+blueman match the libadwaita ones) and the same keys in `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
 (`QT_QPA_PLATFORMTHEME=qt6ct` in `startup.lua`, dark palette in `~/.config/qt6ct/qt6ct.conf`; change it with
 the `qt6ct` app). Electron apps (VS Code, Discord, …) follow the dark setting through the desktop portal; VS
 Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu bar stays light on Wayland.

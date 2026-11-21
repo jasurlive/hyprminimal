@@ -58,7 +58,7 @@ BASE=(
   # screenshots, clipboard, displays
   grim slurp hyprshot satty wl-clipboard wl-clip-persist nwg-displays
   # look
-  noto-fonts-emoji ttf-jetbrains-mono-nerd adwaita-cursors adwaita-icon-theme gnome-themes-extra
+  noto-fonts-emoji ttf-jetbrains-mono-nerd adwaita-cursors adwaita-icon-theme gnome-themes-extra adw-gtk-theme
 )
 mapfile -t SHELL_PKGS < <(awk '!/^[[:space:]]*(#|$)/ {print $1}' "$DIR/packages.txt")
 

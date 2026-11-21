@@ -3,7 +3,7 @@
 
     hyprminimal-settings                 open the settings window
     hyprminimal-settings --page keybinds open on a page (general, bar, notifications,
-                                      lock, startup, nightlight, keybinds, system, about);
+                                      startup, nightlight, keybinds, system, about);
                                       without it, the page you had open last
     hyprminimal-settings --apply         regenerate configs from settings.json (no window)
 """
@@ -73,11 +73,10 @@ DEFAULTS = {
     # desktop background (helpers/panels.c): the name under the logo ("" = no text), logo on/off
     "desktop": {"name": "hyprminimal", "logo": True},
     "bar": {
-        "position": "top", "height": 45,
         "font_size": 16, "icon_size": 20, "clock_size": 18, "font_weight": 500,   # one type scale
         "clock_24h": True,
         "widgets": {
-            "workspaces": True, "cpu": False, "ram": False, "date": True, "clock": True,
+            "workspaces": True, "date": True, "clock": True,
             "media": True, "notifications": True, "wifi": False, "bluetooth": False,
             "volume": False, "tray": False, "battery": True, "network_speed": True,
         },
@@ -89,14 +88,14 @@ DEFAULTS = {
 }
 
 WIDGET_LABELS = [
-    ("workspaces", "Workspaces", "left"), ("cpu", "CPU usage", "center"), ("ram", "RAM usage", "center"),
+    ("workspaces", "Workspaces", "left"),
     ("date", "Date", "center"), ("clock", "Clock", "center"), ("media", "Media", "right"),
     ("notifications", "Notifications", "right"), ("wifi", "Wi-Fi", "right"),
     ("bluetooth", "Bluetooth", "right"), ("volume", "Volume", "right"), ("tray", "System tray", "right"),
     ("battery", "Battery", "right"), ("network_speed", "Network speed", "right"),
 ]
 WIDGET_MODULE = {
-    "workspaces": "ext/workspaces", "cpu": "cpu", "ram": "memory", "date": "clock#date",
+    "workspaces": "ext/workspaces", "date": "clock#date",
     "clock": "clock", "media": "custom/media", "notifications": "custom/notification",
     "wifi": "network#wifi", "bluetooth": "bluetooth", "volume": "pulseaudio", "tray": "tray",
     "battery": "battery", "network_speed": "custom/net",
@@ -401,19 +400,16 @@ def clock_zone(b, font, T, I, C, W):
     on = b["widgets"]
     parts = []
     if on.get("date"):
-        parts.append(text_px("88.88 Wed |", font, T, W))
+        parts.append(text_px("88.88 Wed |" if on.get("clock") else "88.88 Wed", font, T, W))
     if on.get("clock"):
         parts.append(text_px("88:88" if b["clock_24h"] else "88:88 PM", font, C, W))
-    before = 0                                            # cpu / ram sit left of the date in the centre
-    pct = round(100 * I / T)
-    for key, sample in (("cpu", "\U000f04c5  100%"), ("ram", "\U000f035b  88.8G")):
-        if on.get(key):
-            icon, _, rest = sample.partition("  ")
-            before += text_px(f"<span size='{pct}%'>{icon}</span>  {rest}", font, T, W) + spacing
     width = sum(parts) + spacing * max(0, len(parts) - 1)
-    zone = {"position": b["position"], "height": int(b["height"]), "margin": 4,
-            "width": width + 24 if parts else 0, "offset": before / 2}
+    zone = {"position": "top", "height": BAR_HEIGHT, "margin": 4,
+            "width": width + 24 if parts else 0, "offset": 0}
     (GEN / "clock_zone.json").write_text(json.dumps(zone) + "\n")
+
+
+BAR_HEIGHT = 45   # fixed: waybar/style.css margins and the battery are placed for this height, at the top
 
 
 def render(s):
@@ -423,11 +419,10 @@ def render(s):
 
     # waybar
     wb = read_jsonc(DIR / "waybar/config.jsonc")
-    wb["position"] = b["position"]
-    wb["height"] = int(b["height"])
-    for side in ("top", "bottom"):
-        wb.pop(f"margin-{side}", None)
-    wb["margin-top" if b["position"] == "top" else "margin-bottom"] = 4
+    wb["position"] = "top"
+    wb["height"] = BAR_HEIGHT
+    wb.pop("margin-bottom", None)
+    wb["margin-top"] = 4
     cols = {"left": [], "center": [], "right": []}
     for key, _label, side in WIDGET_LABELS:
         if b["widgets"].get(key):
@@ -448,7 +443,8 @@ def render(s):
             return [resize(x) for x in v]
         return v
     wb = resize(wb)
-    wb["clock#date"]["format"] = "{:%d.%m %a} |"   # 15.11 Sun
+    # 15.11 Sun | 17:04; the separator only when the clock follows
+    wb["clock#date"]["format"] = "{:%d.%m %a} |" if b["widgets"].get("clock") else "{:%d.%m %a}"
     (GEN / "waybar.json").write_text(json.dumps(wb, indent=2, ensure_ascii=False), encoding="utf-8")
     font = s["general"]["font"].replace('"', "")
     T, I, C, W = int(b["font_size"]), int(b["icon_size"]), int(b["clock_size"]), int(b["font_weight"])
@@ -464,7 +460,7 @@ def render(s):
         f'min-height: {round(I * 1.2)}px; border-radius: {max(4, round(I * 0.25))}px; }}\n'
         f'#workspaces button.active {{ min-width: {round(I * 2.6)}px; }}\n'
         f'#custom-media {{ border-radius: {round(I * 0.85)}px; }}\n'
-        + battery_css(int(b["height"]), I, W)
+        + battery_css(BAR_HEIGHT, I, W)
         + fixed_widths_css(font, T, I, W))
     clock_zone(b, font, T, I, C, W)
     # scripts that print icons inline (media, network) size them relative to the text
@@ -555,11 +551,41 @@ def render_theme(th, icon_px=None):
     media_icons(th, icon_px)
 
 
+def gtk_theme(dark):
+    """Light or dark for other apps' GTK windows. libadwaita/GTK4 follow color-scheme; GTK3 apps (blueman,
+    nwg-displays, …) need a theme that exists: GTK3 has no built-in Adwaita-dark (that one is gnome-themes-extra),
+    so an unknown name falls back to light Adwaita. adw-gtk3 also looks like the libadwaita apps."""
+    have = lambda n: any((d / n / "gtk-3.0").is_dir() for d in
+                         (Path("/usr/share/themes"), Path.home() / ".local/share/themes", Path.home() / ".themes"))
+    name = "adw-gtk3" if have("adw-gtk3") else "Adwaita"
+    if dark and have(name + "-dark"):
+        name += "-dark"
+    iface = "org.gnome.desktop.interface"
+    sh("gsettings", "set", iface, "color-scheme", "prefer-dark" if dark else "prefer-light")
+    sh("gsettings", "set", iface, "gtk-theme", name)
+    # settings.ini: what GTK reads without gsettings (X11 apps); prefer-dark there would darken a light theme
+    want = {"gtk-theme-name": name, "gtk-application-prefer-dark-theme": "1" if dark else "0"}
+    for v in ("3.0", "4.0"):
+        f = Path.home() / f".config/gtk-{v}/settings.ini"
+        try:
+            lines = f.read_text().splitlines() if f.exists() else ["[Settings]"]
+            keys = dict(want)
+            out = []
+            for ln in lines:
+                k = ln.split("=", 1)[0].strip()
+                out.append(f"{k}={keys.pop(k)}" if k in keys else ln)
+            out += [f"{k}={val}" for k, val in keys.items()]
+            if out != lines:
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_text("\n".join(out) + "\n")
+        except OSError:
+            pass
+
+
 def apply_theme(s):
     """Live: restart the OSD, reload Hyprland (borders, blur) and kitty, tell GTK apps light or dark."""
     th = themes.get(s["general"].get("theme"))
-    dark = themes.roles(th)["dark"]
-    sh("gsettings", "set", "org.gnome.desktop.interface", "color-scheme", "prefer-dark" if dark else "prefer-light")
+    gtk_theme(themes.roles(th)["dark"])
     sh("pkill", "-USR1", "-x", "kitty")          # kitty re-reads its config (and our colours)
     sh("hyprctl", "reload")
     if hyprminimal_active():
@@ -929,11 +955,9 @@ def run_gui(start_page):
                 ("general", "General", "applications-system-symbolic", self.page_general,
                  "font theme performance preload cold start ready memory desktop background logo name arch"),
                 ("bar", "Bar", "view-app-grid-symbolic", self.page_bar,
-                 "bar widgets clock date height position cpu ram wifi bluetooth volume tray battery media"),
+                 "bar widgets clock date wifi bluetooth volume tray battery media"),
                 ("notifications", "Notifications", "preferences-system-notifications-symbolic",
                  self.page_notifications, "notifications dnd do not disturb timeout popup"),
-                ("lock", "Lock Screen", "system-lock-screen-symbolic", self.page_lock,
-                 "lock screen"),
                 ("startup", "Startup", "system-run-symbolic", self.page_startup,
                  "startup autostart autorun login boot launch apps commands scripts exec"),
                 ("network", "Network", "network-workgroup-symbolic", self.page_network,
@@ -944,7 +968,7 @@ def run_gui(start_page):
                 ("keybinds", "Keybinds", "input-keyboard-symbolic", self.page_keybinds,
                  "keybinds shortcuts keys hotkeys"),
                 ("system", "System", "preferences-system-symbolic", self.page_system,
-                 "audio display network bluetooth appearance gtk shell restart"),
+                 "audio display network bluetooth shell restart"),
                 ("about", "About", "help-about-symbolic", self.page_about, "about version"),
             ]:
                 self.builders[pid] = builder          # built on first visit (lazy)
@@ -1238,9 +1262,6 @@ def run_gui(start_page):
 
         def page_bar(self):
             p = Adw.PreferencesPage()
-            g = self.group(p, "Layout")
-            self.combo(g, "Position", "bar", "position", [("top", "Top"), ("bottom", "Bottom")], "bar")
-            self.spin(g, "Height", "bar", "height", 28, 72, 1, "bar", "pixels")
             gt = self.group(p, "Text and icons", "One scale for the whole bar: every label uses the text size, "
                                                 "every icon the icon size, all with the same weight.")
             self.spin(gt, "Text size", "bar", "font_size", 11, 24, 1, "bar", "pixels")
@@ -1282,13 +1303,6 @@ def run_gui(start_page):
             g2.add(r)
             self.button_row(g2, "Send a test notification", None, "Test",
                             lambda: sh("notify-send", "-a", "hyprminimal", "Test notification", "This is how it looks"),
-                            style="pill")
-            return p
-
-        def page_lock(self):
-            p = Adw.PreferencesPage()
-            g = self.group(p, "Lock screen")
-            self.button_row(g, "Lock now", None, "Lock", lambda: sh(str(DIR / "bin/hyprminimal-msg"), "lock", detach=True),
                             style="pill")
             return p
 
@@ -1417,7 +1431,6 @@ def run_gui(start_page):
                 ("Audio", "Output, input and app volumes", "pavucontrol"),
                 ("Displays", "Resolution, scale, arrangement", "nwg-displays"),
                 ("Bluetooth", "Devices", "blueman-manager"),
-                ("Appearance", "GTK theme, icons, cursor", "nwg-look"),
             ]:
                 self.button_row(g2, title, sub, "Open",
                                 lambda c=cmd: sh(c, detach=True) if shutil.which(c) else self.toast(f"{c} is not installed"))
@@ -1870,6 +1883,7 @@ def main():
         if not SETTINGS.exists():
             save_settings(s)
         render(s)
+        gtk_theme(themes.roles(themes.get(s["general"].get("theme")))["dark"])
         return 0
     if "-h" in sys.argv or "--help" in sys.argv:
         print(__doc__.strip())
