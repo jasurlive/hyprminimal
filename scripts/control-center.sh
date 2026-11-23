@@ -13,9 +13,12 @@ if [[ $v == "b true" ]]; then call SetVisibility b false; exit 0; fi
 tmp=${XDG_RUNTIME_DIR:-/tmp}/hyprminimal/cc; mkdir -p "$tmp"
 rm -f "$tmp/expanded"
 call SetVisibility b true
-# one popup at a time: close a bar popup (battery, Wi-Fi, ...) that is open under the control center
-gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-  --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1 &
+# one popup at a time: close a bar popup (battery, calendar, network: helpers/panels.c; Wi-Fi list:
+# Settings app) that is open under the control center
+for dest in Panels Settings; do
+  gdbus call --session --dest dev.hyprminimal.$dest --object-path /dev/hyprminimal/$dest \
+    --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1 &
+done
 
 # ---- live info, after the panel is up
 read -r _ a b c d e f g _ </proc/stat; t1=$((a+b+c+d+e+f+g)) i1=$((d+e))
@@ -23,7 +26,7 @@ w="Off"
 if [[ $(nmcli -t -f WIFI g 2>/dev/null) == enabled ]]; then   # the nmcli calls double as the CPU sample window
   w=$(nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi list --rescan no 2>/dev/null | grep -m1 '^yes:')
   if [[ $w ]]; then s=${w##*:}; w=${w#yes:}; w=${w%:*}; (( ${#w} > 12 )) && w="${w:0:11}…"; w="$w · $s%"
-  else w="Not connected"; fi
+  else w="No wifi"; fi
 fi
 read -r _ a b c d e f g _ </proc/stat; t2=$((a+b+c+d+e+f+g)) i2=$((d+e))
 cpu=$(( (100 * ((t2-t1) - (i2-i1))) / ((t2-t1) > 0 ? (t2-t1) : 1) ))
