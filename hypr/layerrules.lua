@@ -73,7 +73,8 @@ end
 hl.window_rule({ match = { class = "^hyprminimal-remove$" }, float = true, size = "820 520", center = 1 })
 -- theme from Settings -> General (window border colours)
 pcall(dofile, HM .. "/.generated/hypr-theme.lua")
-local settings_rule = { match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, size = "1120 760", center = 1,
+local settings_rule = { match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, center = 1,
+                        size = "min(1120,monitor_w*0.92) min(760,monitor_h*0.9)",  -- fits scaled laptops (1280x720 at 1.5x)
                         no_anim = true, opaque = true }
 hl.window_rule(settings_rule)
 -- Keep Settings ready: the preloaded window maps straight onto a special workspace nothing shows (by its

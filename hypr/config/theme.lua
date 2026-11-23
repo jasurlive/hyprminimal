@@ -3,7 +3,7 @@ hl.config({
     general = {
         gaps_in = 2,
         gaps_out = 6,
-        border_size = 2,
+        border_size = 1,
         resize_on_border = true,
         allow_tearing = false,
         layout = "dwindle",
@@ -31,7 +31,7 @@ hl.config({
         },
     },
     decoration = {
-        rounding = 12,
+        rounding = 0,
         -- performance: no shadows, no translucency, no blur (each costs GPU work on every redraw)
         shadow = { enabled = false },
         active_opacity = 1.0,

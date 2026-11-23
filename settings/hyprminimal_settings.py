@@ -559,7 +559,7 @@ def render_theme(th, icon_px=None):
     media_icons(th, icon_px)
 
 
-def gtk_theme(dark):
+def gtk_theme(dark, font="Noto Sans"):
     """Light or dark for other apps' GTK windows. libadwaita/GTK4 follow color-scheme; GTK3 apps (blueman,
     nwg-displays, …) need a theme that exists: GTK3 has no built-in Adwaita-dark (that one is gnome-themes-extra),
     so an unknown name falls back to light Adwaita. adw-gtk3 also looks like the libadwaita apps."""
@@ -571,8 +571,13 @@ def gtk_theme(dark):
     iface = "org.gnome.desktop.interface"
     sh("gsettings", "set", iface, "color-scheme", "prefer-dark" if dark else "prefer-light")
     sh("gsettings", "set", iface, "gtk-theme", name)
+    # one font everywhere: other apps' UI text follows the Settings font, terminals get Noto Sans Mono
+    sh("gsettings", "set", iface, "font-name", f"{font} 11")
+    sh("gsettings", "set", iface, "document-font-name", f"{font} 11")
+    sh("gsettings", "set", iface, "monospace-font-name", "Noto Sans Mono 11")
     # settings.ini: what GTK reads without gsettings (X11 apps); prefer-dark there would darken a light theme
-    want = {"gtk-theme-name": name, "gtk-application-prefer-dark-theme": "1" if dark else "0"}
+    want = {"gtk-theme-name": name, "gtk-application-prefer-dark-theme": "1" if dark else "0",
+            "gtk-font-name": f"{font} 11"}
     for v in ("3.0", "4.0"):
         f = Path.home() / f".config/gtk-{v}/settings.ini"
         try:
@@ -593,7 +598,7 @@ def gtk_theme(dark):
 def apply_theme(s):
     """Live: restart the OSD, reload Hyprland (borders, blur) and kitty, tell GTK apps light or dark."""
     th = themes.get(s["general"].get("theme"))
-    gtk_theme(themes.roles(th)["dark"])
+    gtk_theme(themes.roles(th)["dark"], s["general"]["font"])
     sh("pkill", "-USR1", "-x", "kitty")          # kitty re-reads its config (and our colours)
     sh("hyprctl", "reload")
     if hyprminimal_active():
@@ -1247,7 +1252,7 @@ def run_gui(start_page):
                         "Loaded hidden at login: Super+I shows it in ~20 ms (~110 MB RAM). "
                         "Off: cold start (~0.5 s), quits 10 min after closing")
             g2 = self.group(p, "Font")
-            fr = Adw.ActionRow(title="Interface font", subtitle="Used by the bar, panels and lock screen")
+            fr = Adw.ActionRow(title="Interface font", subtitle="Used by the bar, panels, lock screen and other apps")
             fb = Gtk.FontDialogButton(dialog=Gtk.FontDialog(), level=Gtk.FontLevel.FAMILY, valign=Gtk.Align.CENTER)
             fb.set_font_desc(Pango.FontDescription.from_string(self.s["general"]["font"]))
 
@@ -1257,6 +1262,7 @@ def run_gui(start_page):
                     self.s["general"]["font"] = fd.get_family()
                     self.changed("bar")
                     reload_notifications()
+                    gtk_theme(themes.roles(themes.get(self.s["general"].get("theme")))["dark"], fd.get_family())
             fb.connect("notify::font-desc", on_font)
             fr.add_suffix(fb)
             g2.add(fr)
@@ -1927,7 +1933,7 @@ def main():
         if not SETTINGS.exists():
             save_settings(s)
         render(s)
-        gtk_theme(themes.roles(themes.get(s["general"].get("theme")))["dark"])
+        gtk_theme(themes.roles(themes.get(s["general"].get("theme")))["dark"], s["general"]["font"])
         return 0
     if "-h" in sys.argv or "--help" in sys.argv:
         print(__doc__.strip())

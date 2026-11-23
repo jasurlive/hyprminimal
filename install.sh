@@ -7,7 +7,7 @@
 #   --tty-login   no login screen: plain TTY login on tty1 (Hyprland starts from ~/.bash_profile)
 #   --no-autostart with --tty-login: don't start Hyprland at the TTY login (start it yourself: start-hyprland)
 #   --reset-hypr  replace ~/.config/hypr with hyprminimal's defaults again (old one is backed up)
-#   --reset-kitty replace ~/.config/kitty/kitty.conf with hyprminimal's again (old one is backed up)
+#   --reset-kitty replace ~/.config/kitty/kitty.conf with hyprminimal's stub again (old one is backed up)
 #   --no-gpu      don't install GPU drivers
 #   -y, --yes     don't ask questions
 set -euo pipefail
@@ -60,7 +60,7 @@ BASE=(
   # screenshots, clipboard, displays
   grim slurp hyprshot satty wl-clipboard wl-clip-persist nwg-displays
   # look
-  noto-fonts-emoji ttf-jetbrains-mono-nerd adwaita-cursors adwaita-icon-theme gnome-themes-extra adw-gtk-theme
+  noto-fonts noto-fonts-emoji adwaita-cursors adwaita-icon-theme gnome-themes-extra adw-gtk-theme
 )
 mapfile -t SHELL_PKGS < <(awk '!/^[[:space:]]*(#|$)/ {print $1}' "$DIR/packages.txt")
 
@@ -132,20 +132,28 @@ fi
 step "Installing the kitty terminal config"
 KITTY="$HOME/.config/kitty/kitty.conf"
 mkdir -p "${KITTY%/*}"
-if [[ -f $KITTY ]] && grep -q '^# hyprminimal kitty config' "$KITTY" && (( ! RESET_KITTY )); then
-  echo "  already installed, kept your edits (--reset-kitty to start over)"
+if [[ -f $KITTY ]] && grep -q '^include .*hyprminimal/kitty/defaults.conf' "$KITTY" && (( ! RESET_KITTY )); then
+  echo "  already installed, defaults come from the repo, kept your edits (--reset-kitty to start over)"
 elif [[ -s $KITTY ]]; then
+  # a foreign config, or an old hyprminimal one (a full copy that never picked up new defaults)
   bak="$KITTY.pre-hyprminimal-$(date +%Y%m%d-%H%M%S)"
-  if (( RESET_KITTY )) || ask "  $KITTY already exists. Move it to $bak and use hyprminimal's?"; then
+  if grep -q '^# hyprminimal kitty config' "$KITTY"; then msg="  $KITTY is an old hyprminimal copy. Update it (old one moved to $bak)?"
+  else msg="  $KITTY already exists. Move it to $bak and use hyprminimal's?"; fi
+  if (( RESET_KITTY )) || ask "$msg"; then
     mv "$KITTY" "$bak"; cp "$DIR/kitty/kitty.conf" "$KITTY"; echo "  old config saved in $bak"
   else
-    warn "kept your kitty config. For hyprminimal colours add to it:"
-    echo "      include ~/.local/share/hyprminimal/kitty/colors.conf"
+    warn "kept your kitty config. For hyprminimal's defaults and colours add to its top:"
+    echo "      include ~/.local/share/hyprminimal/kitty/defaults.conf"
   fi
 else
   cp "$DIR/kitty/kitty.conf" "$KITTY"
 fi
 pgrep -x kitty >/dev/null && pkill -USR1 -x kitty || true   # live-reload open terminals
+
+# ------------------------------------------------------------------ fonts: Noto Sans everywhere
+mkdir -p "$HOME/.config/fontconfig/conf.d"
+ln -sfn "$LINK/fontconfig/50-hyprminimal.conf" "$HOME/.config/fontconfig/conf.d/50-hyprminimal.conf"
+fc-cache -f >/dev/null 2>&1 || true
 
 # ------------------------------------------------------------------ dark theme for GTK/Qt apps
 mkdir -p "$HOME/.config/gtk-3.0" "$HOME/.config/gtk-4.0"
