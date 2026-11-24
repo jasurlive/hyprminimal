@@ -455,13 +455,25 @@ hyprminimal restart                        # everything is rebuilt from the defa
 ```
 
 ### Uninstall hyprminimal completely
-1. In `~/.config/hypr/startup.lua`, remove the hyprminimal line (or restore `.pre-hyprminimal-backup/startup.lua`, after checking it).
-2. Remove the `# hyprminimal autostart` block from `~/.bash_profile`.
-3. Run `hyprminimal stop`.
-4. Remove the last line of `~/.config/hypr/hyprland.lua` (the one that loads the hyprminimal layer rules).
-5. In `keybind.lua`, point `SHELLMSG` at your new shell, or restore the file from `.pre-hyprminimal-backup/`.
-6. Delete the folders:
-   ```bash
-   rm -rf ~/www/hyprminimal ~/.cache/hyprminimal ~/.local/state/hyprminimal
-   ```
-   The packages in `packages.txt` are ordinary Arch packages. Keep or remove them as you like.
+```bash
+cd ~/www/hyprminimal
+./uninstall.sh            # lists what goes, asks once, then removes it
+sudo reboot
+```
+It undoes everything `install.sh` did: the login screen (back to the plain TTY login on tty1), the
+tty1 autostart in `~/.bash_profile`, `~/.config/hypr`, `kitty.conf`, the font, GTK, Qt and Firefox
+tweaks, the hotspot helper and its polkit rule, the swaync mask, `~/.local/share/hyprminimal`, the
+`~/.local/bin/hyprminimal*` links, caches, state, `.generated/` and `settings.json`.
+After the reboot, log in on tty1 and run `start-hyprland`. Hyprland writes its own default config
+because `~/.config/hypr` is gone, so you get stock Hyprland. Run `./install.sh` again to reinstall from scratch.
+
+| Option | What it adds |
+|---|---|
+| `--restore` | Puts back the configs `install.sh` moved away (`~/.config/hypr.pre-hyprminimal-*`, `kitty.conf.pre-hyprminimal-*`) instead of starting from Hyprland's defaults. |
+| `--packages` | Also removes the hyprminimal-only packages in `packages.txt` (`pacman -Rnsu`, so anything another package still needs stays). hyprland, kitty, NetworkManager and the basics `install.sh` needs are always kept. |
+| `--purge` | Also deletes the repo folder. |
+| `-y` | Doesn't ask. |
+
+It never touches a `~/.config/hypr` that lacks the `.hyprminimal` marker (a config you kept at
+install time). Enabled services (NetworkManager, bluetooth, power-profiles-daemon) stay enabled, and
+the `*.pre-hyprminimal-*` backups are kept unless `--restore` uses them.

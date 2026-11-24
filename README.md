@@ -15,6 +15,10 @@ cd ~/hyprminimal && ./install.sh     # then: sudo reboot
 
 Options: `--no-autostart`, `--reset-hypr`, `--no-gpu`, `-y`.
 
+If you hate this theme clean it up:
+
+Uninstall: `./uninstall.sh` (back to stock Hyprland; `--purge` also deletes the repo). See [GUIDE.md §6](GUIDE.md#6-reset-undo-uninstall).
+
 ```bash
 hyprminimal start | stop | status | restart
 ```

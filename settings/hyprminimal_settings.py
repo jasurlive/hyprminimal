@@ -79,8 +79,8 @@ DEFAULTS = {
         "hidden": False,          # bar off: waybar starts hidden (no exclusive zone), windows use the full screen
         "widgets": {
             "workspaces": True, "date": True, "clock": True,
-            "media": True, "notifications": True, "wifi": False, "bluetooth": False,
-            "volume": False, "tray": False, "battery": True, "network_speed": True,
+            "media": True, "notifications": True, "wifi": True, "bluetooth": False,
+            "volume": False, "tray": False, "battery": True, "network_speed": False,
         },
     },
     "notifications": {"position": "top-right", "timeout": 3},
