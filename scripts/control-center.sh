@@ -26,7 +26,7 @@ w="Off"
 if [[ $(nmcli -t -f WIFI g 2>/dev/null) == enabled ]]; then   # the nmcli calls double as the CPU sample window
   w=$(nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi list --rescan no 2>/dev/null | grep -m1 '^yes:')
   if [[ $w ]]; then s=${w##*:}; w=${w#yes:}; w=${w%:*}; (( ${#w} > 12 )) && w="${w:0:11}…"; w="$w · $s%"
-  else w="No wifi"; fi
+  else w="Hatching..."; fi
 fi
 read -r _ a b c d e f g _ </proc/stat; t2=$((a+b+c+d+e+f+g)) i2=$((d+e))
 cpu=$(( (100 * ((t2-t1) - (i2-i1))) / ((t2-t1) > 0 ? (t2-t1) : 1) ))
