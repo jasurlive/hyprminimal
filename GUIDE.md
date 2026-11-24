@@ -279,6 +279,8 @@ Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu 
 
 ## 3. Keybinds
 
+The full list of default shortcuts is in [KEYBINDINGS.md](KEYBINDINGS.md).
+
 Super+H opens the editor. From it you can search,
 edit, record a new key combo, add shortcuts and remove them.
 

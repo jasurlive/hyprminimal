@@ -23,17 +23,24 @@ Uninstall: `./uninstall.sh` (back to stock Hyprland; `--purge` also deletes the 
 hyprminimal start | stop | status | restart
 ```
 
-Logs: `$XDG_RUNTIME_DIR/hyprminimal/*.log`. Help: [GUIDE.md](GUIDE.md).
+Logs: `$XDG_RUNTIME_DIR/hyprminimal/*.log`. Help: [GUIDE.md](GUIDE.md). Shortcuts: [KEYBINDINGS.md](KEYBINDINGS.md).
 
 ## Keys
 
+The ones to learn first. **All shortcuts: [KEYBINDINGS.md](KEYBINDINGS.md)**, or press Super+H.
+
 | Key | What |
 |---|---|
+| Super+Space | Terminal |
 | Super+R | Launcher (`rm NAME` uninstalls) |
 | Super+S | Control center |
 | Super+I | Settings (type to search) |
-| Super+H | Keybinds |
+| Super+H | Keybinds (view, search, edit) |
+| Super+Q | Close window |
+| Super+1…0 | Switch workspace |
+| Super+Escape | Session menu |
 | Super+L | Lock |
+| Print | Screenshot a region |
 
 ## Parts
 
