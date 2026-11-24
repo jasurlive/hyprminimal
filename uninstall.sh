@@ -147,6 +147,9 @@ for b in "$HOME"/.local/bin/hyprminimal*; do
   [[ -L $b && $(readlink "$b") == "$LINK"/* ]] && rmv "$b"
 done
 [[ -L $LINK ]] && rmv "$LINK"
+# the hyprlock.conf link Settings drops in ~/.config/hypr (left behind when that dir was not ours)
+lk="$HYPR/hyprlock.conf"
+[[ -L $lk && $(readlink "$lk") == "$DIR"/* ]] && rmv "$lk"
 rmv "$HOME/.cache/hyprminimal"
 rmv "${XDG_STATE_HOME:-$HOME/.local/state}/hyprminimal"
 rmv "${XDG_RUNTIME_DIR:-/tmp}/hyprminimal"
