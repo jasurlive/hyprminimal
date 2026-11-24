@@ -228,7 +228,8 @@ stop_components() {
   pgrep -x "$(IFS='|'; echo "${COMPONENTS[*]}|hyprsunset|waitpids|workspace-watch")" >/dev/null \
     || pgrep -f "$DIR/(bin/hyprminimal watchdog|scripts/workspace-watch\.py)" >/dev/null \
     || { [[ -f $RUN/caffeine.pid ]] && kill "$(cat "$RUN/caffeine.pid")" 2>/dev/null; rm -f "$RUN/caffeine.pid"; return 0; }
-  pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"; pkill -f "$DIR/scripts/workspace-watch.py"; pkill -f "$GEN/bin/workspace-watch"
+  pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"
+  pkill -x workspace-watch   # older hyprminimal ran it separately; helpers/panels.c watches the workspaces now
   for c in "${COMPONENTS[@]}"; do stop_one "$c"; done
   pkill -x hyprsunset
   pkill -x swaybg   # older hyprminimal drew the wallpaper with it; helpers/panels.c draws the desktop now
@@ -257,16 +258,14 @@ start_components() {
   start_one swayosd-server
   # one "current player" for bar, panel and media keys (several Firefox tabs = several players)
   pgrep -x playerctld >/dev/null || spawn playerctld playerctld daemon
-  # close the control center when switching workspace (Super+1..9) or monitor
-  if [[ -x $GEN/bin/workspace-watch ]]; then spawn workspace-watch "$GEN/bin/workspace-watch"
-  else spawn workspace-watch python3 -I "$DIR/scripts/workspace-watch.py"; fi
   [[ ${nl:-} == on ]] && spawn hyprsunset hyprsunset -t "${temp:-4000}"
   # settings app, started hidden so Super+I / Super+H (and the Wi-Fi list popup) open instantly.
   # Settings → General → Keep Settings ready (.generated/preload) off: cold start on first use instead.
   local preload=on; read -r preload < "$GEN/preload" 2>/dev/null
   [[ $preload == off ]] || pgrep -f '^python3 -I [^ ]*/settings/hyprminimal_settings\.py' >/dev/null \
     || spawn settings "$DIR/bin/hyprminimal-settings" --preload
-  # bar popups (calendar, battery, network, system) + clock click strip: a small C program
+  # bar popups (calendar, battery, network, system), clock click strip, desktop background and the
+  # workspace-switch watch that closes the control center: one small C program
   if [[ -x $GEN/bin/panels ]]; then
     pgrep -f "^$GEN/bin/panels" >/dev/null || spawn panels "$GEN/bin/panels"
   else

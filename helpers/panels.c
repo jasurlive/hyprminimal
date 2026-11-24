@@ -6,7 +6,9 @@
 // (settings/nm.py), off the UI thread.
 //
 // Also owns the desktop background (theme colour + Arch logo, replaces a wallpaper program), the clock
-// click strip on the bar (.generated/clock_zone.json) and the click-outside catcher for rofi popups. Theme: .generated/panels.css (written by `hyprminimal-settings --apply`), reloaded live.
+// click strip on the bar (.generated/clock_zone.json), the click-outside catcher for rofi popups and the
+// Hyprland event watch that closes the control center on a workspace switch (was workspace-watch).
+// Theme: .generated/panels.css (written by `hyprminimal-settings --apply`), reloaded live.
 // D-Bus (org.gtk.Actions on dev.hyprminimal.Panels, /dev/hyprminimal/Panels), used by bin/hyprminimal-msg:
 //   panel s       toggle a popup: calendar | battery | network | system | launcher | session
 //   panel-close   close the open popup (Hyprland, on a click outside it)
@@ -18,6 +20,7 @@
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
 #include <gtk4-layer-shell.h>
+#include <gio/gunixsocketaddress.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2067,6 +2070,57 @@ static void monitors_changed(GListModel *l, guint pos, guint rem, guint add, gpo
     bg_timer = g_timeout_add(300, bgs_later, NULL);
 }
 
+// --------------------------------------------------------------------------- Hyprland events
+// Close the swaync control center (Super+S) and the Wi-Fi list popup (Settings) when the workspace or
+// focused monitor changes (Super+2) or a window opens: they are layer surfaces, so Hyprland leaves them
+// open on top of the new window. Reads Hyprland's event socket on the main loop (no polling); replaces
+// the separate workspace-watch program. Reconnects if the socket drops while Hyprland still runs.
+static char *hypr_sock;
+static GDataInputStream *hypr_in;
+static GSocketConnection *hypr_conn;
+
+static void hypr_connect(void);
+static gboolean hypr_retry(gpointer d) { (void)d; hypr_connect(); return G_SOURCE_REMOVE; }
+
+static void hypr_drop(void) {
+    g_clear_object(&hypr_in);
+    g_clear_object(&hypr_conn);
+    if (g_file_test(hypr_sock, G_FILE_TEST_EXISTS)) g_timeout_add_seconds(1, hypr_retry, NULL);
+}
+
+static void hypr_line(GObject *src, GAsyncResult *res, gpointer d) {
+    (void)d;
+    gsize len;
+    char *line = g_data_input_stream_read_line_finish_utf8(G_DATA_INPUT_STREAM(src), res, &len, NULL);
+    if (!line) { if (G_DATA_INPUT_STREAM(src) == hypr_in) hypr_drop(); return; }   // EOF or error
+    if (g_str_has_prefix(line, "workspace>>") || g_str_has_prefix(line, "focusedmon>>") ||
+        g_str_has_prefix(line, "openwindow>>")) {
+        hide_control_center();
+        close_python_panel();
+    }
+    g_free(line);
+    g_data_input_stream_read_line_async(hypr_in, G_PRIORITY_DEFAULT, NULL, hypr_line, NULL);
+}
+
+static void hypr_connect(void) {
+    GSocketClient *c = g_socket_client_new();
+    GSocketAddress *a = g_unix_socket_address_new(hypr_sock);
+    hypr_conn = g_socket_client_connect(c, G_SOCKET_CONNECTABLE(a), NULL, NULL);
+    g_object_unref(a);
+    g_object_unref(c);
+    if (!hypr_conn) { hypr_drop(); return; }
+    hypr_in = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(hypr_conn)));
+    g_data_input_stream_read_line_async(hypr_in, G_PRIORITY_DEFAULT, NULL, hypr_line, NULL);
+}
+
+static void hypr_watch(void) {
+    const char *sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
+    if (!sig) return;   // not inside Hyprland
+    const char *rt = getenv("XDG_RUNTIME_DIR");
+    hypr_sock = g_strdup_printf("%s/hypr/%s/.socket2.sock", rt ? rt : "/tmp", sig);
+    hypr_connect();
+}
+
 // --------------------------------------------------------------------------- application
 static void act_panel(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)d; manager_toggle(g_variant_get_string(v, NULL)); }
 static void act_close(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)v; (void)d; if (current) manager_close(); }
@@ -2090,6 +2144,7 @@ static void startup(GApplication *a, gpointer d) {
     for (size_t i = 0; i < G_N_ELEMENTS(PANELS); i++) panel_create(PANELS[i]);   // first click is instant
     reload_zones();
     reload_backgrounds();
+    hypr_watch();
     g_signal_connect(gdk_display_get_monitors(gdk_display_get_default()), "items-changed",
                      G_CALLBACK(monitors_changed), NULL);
     GFile *gen = g_file_new_for_path(GEN);

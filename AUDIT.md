@@ -119,7 +119,7 @@ comes from `base`, systemd, glib2, util-linux, or the package of its daemon.
 | swayosd-server | `bin/hyprminimal:69` | resident | event |
 | hypridle | `bin/hyprminimal:77` | resident | event |
 | playerctld | `bin/hyprminimal:234` | resident | event |
-| `.generated/bin/workspace-watch` | `bin/hyprminimal:236` | resident | event (socket2) |
+| ~~`.generated/bin/workspace-watch`~~ | folded into `.generated/bin/panels` | — | event (socket2) on panels' GLib loop; D-Bus calls instead of forking busctl/gdbus |
 | hyprsunset | `bin/hyprminimal:238` when Night Light is on | resident | – |
 | **`hyprminimal_settings.py --preload`** | `bin/hyprminimal:240` | **resident, never quits** (`preloaded` disables the 10-min idle quit, `settings/hyprminimal_settings.py:1668,1723`) | idle, but **≈95 MB RSS** (largest hyprminimal process) |
 | `hyprminimal watchdog` (bash) + `waitpids` | `bin/hyprminimal:245` | resident | blocks on pidfds. Timeout 6 s while a config is unproven, 30 s while a component has given up, **`sleep 3` polling** while anything is missing (`:199`), `sleep 1` after every exit |
@@ -156,7 +156,7 @@ The swaync wait (`bin/hyprminimal:65`) can become event-driven: `gdbus wait --se
 | `greeter/greeter.py` | 214 | greetd greeter (GTK4) | keep (gtkgreet/regreet look different) |
 | `scripts/launcher.py` | 105 | numbered rofi app list, recent apps, `rm NAME` | keep (Gio's .desktop parsing is the correct way; costs nothing while idle) |
 | `scripts/center-lines.py` | 42 | pads the Wi-Fi and System tile labels with spaces so their two lines look centred. Starts **Python + gi + Pango on every control-center open** | **ask** → replace: the swaync shim is already preloaded into swaync (`pointer.c`). One `gtk_label_set_justify(…, GTK_JUSTIFY_CENTER)` on button labels in its map hook centres the lines exactly, so this script and its jq fallback go away |
-| `scripts/workspace-watch.py` | 30 | fallback for `helpers/workspace-watch.c` when gcc is missing | **remove**: gcc is required, so this path only runs if the build fails, and install should fail loudly instead |
+| `scripts/workspace-watch.py` | 30 | fallback for `helpers/workspace-watch.c` when gcc is missing | **done**: removed, the watch lives in `helpers/panels.c` |
 
 ---
 
@@ -170,7 +170,7 @@ The swaync wait (`bin/hyprminimal:65`) can become event-driven: `gdbus wait --se
 | `${XDG_RUNTIME_DIR:-/tmp}/hyprminimal` | `bin/hyprminimal:14`, `bin/hyprminimal-msg` ×4, `scripts/errors.sh:3`, `control-center.sh:19`, settings | define once in the shared helper |
 | "`.generated/X` if present, else the repo's `X`" | hyprlock conf ×3 (`hyprminimal-msg lock`, `startup.lua:44`, `hyprminimal-greeter:41`), rofi themes (`session.sh:3`, `launcher.py:64`), swayosd css (`bin/hyprminimal:69`) | one `gen_or_repo` helper in bash |
 | JSON string escaping | `scripts/errors.sh:6`, `scripts/media.sh:4` | shared helper |
-| swaync D-Bus call (`busctl --auto-start=no … swaync.cc`) | `control-center.sh:9`, `bin/hyprminimal:39,65`, `helpers/workspace-watch.c:19` | the bash copies share the helper (C keeps its own) |
+| swaync D-Bus call (`busctl --auto-start=no … swaync.cc`) | `control-center.sh:9`, `bin/hyprminimal:39,65`, `helpers/panels.c` (`hide_control_center`) | the bash copies share the helper (C keeps its own) |
 | colours written outside the palette | `hypr/config/theme.lua`, `hyprlock/hyprlock.conf:2-8`, `waybar/config.jsonc:108` (`#e8d5a6`), `install.sh:110` gradient, `bin/hyprminimal:73` `#222436` | by design: `themes.recolor()` maps these Tokyo Night values to the active theme. The two literals outside rendered files (`install.sh:110`, `bin/hyprminimal:73`) can read `colors/palette.css` |
 | hard-coded `~/.config/hypr` (XDG_CONFIG_HOME ignored) | `install.sh:17`, `hypr/config/hyprland.lua:3`, `keybind.lua:1`, `settings/hyprminimal_settings.py:62`, `hyprminimal-greeter:42`, kitty/gtk/qt6ct paths in install.sh | `${XDG_CONFIG_HOME:-$HOME/.config}` in bash/Python, `os.getenv("XDG_CONFIG_HOME")` in Lua |
 | hard-coded `~/.local/share/hyprminimal` | keybind.lua, startup.lua, accel-step.sh, hypridle.conf, kitty.conf, layerrules.lua | stays: the stable link is the single source by design. Respect `XDG_DATA_HOME` in install.sh and its readers |
@@ -183,9 +183,9 @@ The swaync wait (`bin/hyprminimal:65`) can become event-driven: `gdbus wait --se
 |---|---|---|
 | `app.sh` | referenced nowhere; a variant copy of `install.sh` | remove |
 | `hyprsettings/` (31 files) | referenced nowhere. A personal backup of an older `~/.config/hypr` (`hyprsettings/restore`: "cp -a ~/hyprsettings ~/.config/hypr"), with machine-specific nwg-displays output (`monitors.conf`, `workspaces.*`) | **ask**: remove from the repo (it stays in git history), or move it outside the repo? |
-| `scripts/workspace-watch.py` | fallback only, see §3 | remove |
+| `scripts/workspace-watch.py` | fallback only, see §3 | done (removed) |
 | `scripts/netspeed.sh` lines 7-38 | bash fallback loop, only reached without gcc | reduce to the exec of the built helper (or point waybar at it directly) |
-| `bin/hyprminimal:209` `pkill … workspace-watch.py` | follows from the above | remove |
+| `bin/hyprminimal:209` `pkill … workspace-watch.py` | follows from the above | done (only `pkill -x workspace-watch` for upgrades remains) |
 | `hypr/config/windowrules.lua:4` `nm-connection-editor` rule | its app is no longer launched | remove with network-manager-applet |
 | `.gitignore: settings.json.tmp` | `save_settings` writes `settings.tmp` (`hyprminimal_settings.py:145`, `with_suffix`) | fix the entry |
 
