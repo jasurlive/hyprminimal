@@ -4,7 +4,7 @@
 #   hyprminimal stop           stop hyprminimal
 #   hyprminimal restart        restart hyprminimal (after editing configs)
 #   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server)
-#   hyprminimal status         show what is running
+#   hyprminimal status         show what is running and any missing packages
 set -uo pipefail
 # never pass a GTK4 preload (Settings runs with libgtk4-layer-shell) on to waybar (GTK3): it crashes at start
 unset LD_PRELOAD
@@ -225,11 +225,10 @@ Log: $RUN/${LOG[$c]}.log — after fixing run: hyprminimal restart"
 
 stop_components() {
   # nothing of ours running (fresh login): skip ~20 pkill/pgrep scans and the settle sleep (~1 s)
-  pgrep -x "$(IFS='|'; echo "${COMPONENTS[*]}|hyprsunset|waitpids|workspace-watch")" >/dev/null \
-    || pgrep -f "$DIR/(bin/hyprminimal watchdog|scripts/workspace-watch\.py)" >/dev/null \
+  pgrep -x "$(IFS='|'; echo "${COMPONENTS[*]}|hyprsunset|waitpids")" >/dev/null \
+    || pgrep -f "$DIR/bin/hyprminimal watchdog" >/dev/null \
     || { [[ -f $RUN/caffeine.pid ]] && kill "$(cat "$RUN/caffeine.pid")" 2>/dev/null; rm -f "$RUN/caffeine.pid"; return 0; }
   pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"
-  pkill -x workspace-watch   # older hyprminimal ran it separately; helpers/panels.c watches the workspaces now
   for c in "${COMPONENTS[@]}"; do stop_one "$c"; done
   pkill -x hyprsunset
   pkill -x swaybg   # older hyprminimal drew the wallpaper with it; helpers/panels.c draws the desktop now
@@ -296,13 +295,6 @@ run_startup() {
 
 case ${1:-} in
   start)
-    # one pacman call for all packages ("name   # comment" lines), not one per package (~1 s at login)
-    mapfile -t miss < <(pacman -T $(awk '!/^[[:space:]]*#/ && NF {print $1}' "$DIR/packages.txt") 2>/dev/null)
-    if (( ${#miss[@]} )); then
-      echo "hyprminimal: install missing packages first:"
-      echo "  sudo pacman -S --needed ${miss[*]}"
-      exit 1
-    fi
     mkdir -p "$RUN"; touch "$RUN/active"; rm -rf "$RUN/fallback" "$ERR"
     stop_components; start_components
     run_startup
@@ -341,6 +333,9 @@ case ${1:-} in
         "$([[ -e $RUN/fallback/$c ]] && echo ' (last working settings)')"
     done
     for f in "$ERR"/*; do [[ -f $f ]] && printf 'error %s: %s\n' "${f##*/}" "$(<"$f")"; done
+    # packages are checked here and by install.sh, not at every login: one pacman call for the whole list
+    mapfile -t miss < <(pacman -T $(awk '!/^[[:space:]]*#/ && NF {print $1}' "$DIR/packages.txt") 2>/dev/null)
+    (( ${#miss[@]} )) && printf 'missing packages: %s\n  sudo pacman -S --needed %s\n' "${miss[*]}" "${miss[*]}"
     exit 0
     ;;
   *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;

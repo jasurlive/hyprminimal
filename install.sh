@@ -82,6 +82,8 @@ step "Updating the system and installing packages"
 echo "  shell: ${#SHELL_PKGS[@]}  desktop: ${#BASE[@]}  gpu: ${GPU_PKGS[*]:-none}"
 sudo pacman -Syu --needed --noconfirm "${SHELL_PKGS[@]}" "${BASE[@]}" "${GPU_PKGS[@]}" \
   || die "pacman failed (see above). Fix it and run ./install.sh again."
+mapfile -t miss < <(pacman -T "${SHELL_PKGS[@]}" "${BASE[@]}" "${GPU_PKGS[@]}" 2>/dev/null)
+(( ${#miss[@]} )) && die "still missing after pacman: ${miss[*]}. Install them and run ./install.sh again."
 if [[ ${NVIDIA:-} ]]; then
   warn "NVIDIA: nvidia-open needs a GTX 16xx / RTX 20xx or newer. For older cards install the matching driver yourself."
 fi

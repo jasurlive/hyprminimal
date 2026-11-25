@@ -185,7 +185,7 @@ The swaync wait (`bin/hyprminimal:65`) can become event-driven: `gdbus wait --se
 | `hyprsettings/` (31 files) | referenced nowhere. A personal backup of an older `~/.config/hypr` (`hyprsettings/restore`: "cp -a ~/hyprsettings ~/.config/hypr"), with machine-specific nwg-displays output (`monitors.conf`, `workspaces.*`) | **ask**: remove from the repo (it stays in git history), or move it outside the repo? |
 | `scripts/workspace-watch.py` | fallback only, see §3 | done (removed) |
 | `scripts/netspeed.sh` lines 7-38 | bash fallback loop, only reached without gcc | reduce to the exec of the built helper (or point waybar at it directly) |
-| `bin/hyprminimal:209` `pkill … workspace-watch.py` | follows from the above | done (only `pkill -x workspace-watch` for upgrades remains) |
+| `bin/hyprminimal:209` `pkill … workspace-watch.py` | follows from the above | done (upgrade leftovers removed too) |
 | `hypr/config/windowrules.lua:4` `nm-connection-editor` rule | its app is no longer launched | remove with network-manager-applet |
 | `.gitignore: settings.json.tmp` | `save_settings` writes `settings.tmp` (`hyprminimal_settings.py:145`, `with_suffix`) | fix the entry |
 
@@ -220,7 +220,7 @@ The swaync wait (`bin/hyprminimal:65`) can become event-driven: `gdbus wait --se
    `pacman -S --needed`, fail loudly, record what was installed, build the C helpers at install
    time, add `uninstall.sh`.
 3. **Processes.**
-   * One `pacman -T` instead of ~34 `pacman -Qq` at every login.
+   * **done**: no package check at login; one `pacman -T` in `install.sh` and `hyprminimal status`.
    * `gdbus wait` instead of the swaync poll loop.
    * Watchdog: replace the `sleep 3` polling with a waitpids timeout that is armed only while a component is down (keeps the crash-fallback behaviour).
    * `center-lines.py` → shim (if approved).

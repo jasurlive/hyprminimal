@@ -18,7 +18,7 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 
 | Command | What it does |
 |---|---|
-| `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, desktop background). It refuses to start if a package from `packages.txt` is missing and prints the `pacman` line to install it. |
+| `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, desktop background). Packages are not checked at login: `install.sh` verifies them, and `hyprminimal status` lists any missing from `packages.txt` with the `pacman` line to install them. |
 | `hyprminimal stop` | Stops hyprminimal, for this session only. |
 | `hyprminimal restart` | Restarts everything, including the settings process. Run it after editing any file in this folder by hand. |
 | `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync` or `swayosd-server`. |
@@ -344,7 +344,7 @@ Log files:
 
 ### First steps for any problem
 ```bash
-hyprminimal status                                   # what is running?
+hyprminimal status                                   # what is running? missing packages?
 ls -lt $XDG_RUNTIME_DIR/hyprminimal/                 # which log changed last?
 tail -50 $XDG_RUNTIME_DIR/hyprminimal/waybar.log     # replace waybar with the component
 hyprminimal restart                                  # fixes most problems
