@@ -194,11 +194,12 @@ class WifiPanel(Panel):
         head.append(label("\U000f05a9", "icon-sm accent", valign=Gtk.Align.CENTER))
         head.append(label("Wi-Fi networks", "mid", hexpand=True))
         self.scan = Gtk.Button(label="\U000f0450", css_classes=["round", "flat-icon"], valign=Gtk.Align.CENTER,
-                               tooltip_text="Scan again")
+                               tooltip_text="Scan again (R)")
         self.scan.add_css_class("scan-btn")
         self.scan.connect("clicked", lambda *_: self._load(rescan=True))
         self._dots = None                              # animation timer while a scan runs
         head.append(self.scan)
+        head.append(label("R", "key-hint", 0.5, valign=Gtk.Align.CENTER))   # keycap like Super+S's
         self.switch = Gtk.Switch(valign=Gtk.Align.CENTER, tooltip_text="Wi-Fi on/off")
         self._sync = False
         self.switch.connect("state-set", self._toggle)
@@ -214,6 +215,12 @@ class WifiPanel(Panel):
         s.connect("clicked", lambda *_: (self.manager.close(), self.manager.app.present_page("network")))
         box.append(s)
         self._busy = False
+
+    def key(self, keyval):
+        if keyval == Gdk.KEY_r:                        # R = scan again (ignored while typing a password)
+            self._load(rescan=True)
+            return True
+        return False
 
     # --- data (worker thread)
     @staticmethod
@@ -262,7 +269,7 @@ class WifiPanel(Panel):
         self.scan.set_sensitive(not on)
         if not on:
             self.scan.set_label("\U000f0450")
-            self.scan.set_tooltip_text("Scan again")
+            self.scan.set_tooltip_text("Scan again (R)")
             return
         self.scan.set_tooltip_text("Scanning…")
         frames = ["\u2022\u2009\u00b7\u2009\u00b7", "\u00b7\u2009\u2022\u2009\u00b7", "\u00b7\u2009\u00b7\u2009\u2022"]
