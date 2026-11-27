@@ -476,7 +476,10 @@ static void kb_add(KeybindFile *kf, const char *combo, const char *desc, const c
 
 static char *hypr_ctl(const char *cmd);   // Hyprland IPC request (window.c)
 
-// Write, reload Hyprland, roll back if Hyprland reports config errors. Returns the error text or NULL.
+#define KB_BACKUPS 10   // keybind.lua.<stamp> backups kept
+
+// Back up, write, reload Hyprland, roll back if Hyprland reports config errors. Returns the error text or NULL.
+// Keeps the newest KB_BACKUPS keybind.lua.* backups; other files in the backup folder are left alone.
 // Blocks ~0.5 s: worker thread.
 static char *kb_write_checked(const char *path, const char *text) {
     char *old = NULL;
@@ -487,6 +490,20 @@ static char *kb_write_checked(const char *path, const char *text) {
     char *stamp = g_date_time_format(now, "%Y%m%d-%H%M%S"), *bname = g_strdup_printf("keybind.lua.%s", stamp);
     char *bpath = g_build_filename(dir, bname, NULL);
     g_file_set_contents(bpath, old, -1, NULL);
+    GDir *gd = g_dir_open(dir, 0, NULL);
+    if (gd) {   // the stamps sort by time: drop all but the last KB_BACKUPS names
+        GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
+        for (const char *n; (n = g_dir_read_name(gd));)
+            if (g_str_has_prefix(n, "keybind.lua.")) g_ptr_array_add(names, g_strdup(n));
+        g_dir_close(gd);
+        g_ptr_array_sort_values(names, (GCompareFunc)strcmp);
+        for (guint i = 0; i + KB_BACKUPS < names->len; i++) {
+            char *p = g_build_filename(dir, g_ptr_array_index(names, i), NULL);
+            g_unlink(p);
+            g_free(p);
+        }
+        g_ptr_array_unref(names);
+    }
     g_date_time_unref(now);
     g_free(stamp); g_free(bname); g_free(bpath); g_free(dir);
     char *err = NULL;

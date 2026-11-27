@@ -125,7 +125,14 @@ static void retry_clicked(GtkButton *b, gpointer d) {
     (void)b; (void)d;
     gtk_widget_set_visible(SW.err_banner, FALSE);
     if (!SW.err_comp) return;
-    if (!strcmp(SW.err_comp, "settings")) { changed(CH_BAR); return; }
+    if (!strcmp(SW.err_comp, "settings")) {   // re-read settings.json first: the user may have fixed it
+        gboolean stale = CFG_BROKEN;           // pages built meanwhile show the defaults, not the file
+        load_settings();
+        if (CFG_BROKEN) { settings_toast("settings.json is still not valid JSON", 6); update_banners(); return; }
+        changed(CH_THEME);
+        if (stale) settings_toast("settings.json applied. Run hyprminimal restart to show its values here", 8);
+        return;
+    }
     char *bin = g_build_filename(REPO, "bin", "hyprminimal", NULL);
     const char *argv[] = {bin, "respawn", SW.err_comp, NULL};   // clears the error, tries the current settings
     spawn_quiet(argv);

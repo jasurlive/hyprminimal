@@ -67,7 +67,7 @@ start_one() {   # start a single component (not running already)
       spawn waybar waybar -c "$(cfg waybar waybar.json)" -s "$(cfg waybar waybar.css)"
       refullscreen_after_bar ;;
     panels)
-      build_helpers   # respawn after an edit runs the new code (nothing to do when it is up to date)
+      build_report   # respawn after an edit runs the new code (nothing to do when it is up to date)
       if [[ ! -x $GEN/bin/panels ]]; then
         notify critical "Popups, notifications and OSD unavailable" \
           "Building helpers/panels.c failed (needs gcc, gtk4 and gtk4-layer-shell). Details: $RUN/helpers-build.log"
@@ -88,8 +88,10 @@ stop_one() {
 # small C helpers (helpers/*.c -> .generated/bin/), rebuilt when the source is newer. A first line
 # "// pkg-config: lib ..." adds those libraries (the GTK bar popups, helpers/panels.c). gcc is required
 # (packages.txt): there are no script fallbacks for the popups or the watchdog's waitpids.
+# Fails when any helper fails to build: its old binary (if any) stays, so callers that only need one to
+# exist go on with it.
 build_helpers() {
-  local src out libs flags
+  local src out libs flags rc=0
   mkdir -p "$GEN/bin"
   for src in "$DIR"/helpers/*.c; do
     out="$GEN/bin/$(basename "$src" .c)"
@@ -99,10 +101,19 @@ build_helpers() {
     read -r libs < "$src"
     if [[ $libs == "// pkg-config: "* ]]; then
       libs=${libs#// pkg-config: }
-      flags=($(pkg-config --cflags --libs $libs 2>>"$RUN/helpers-build.log") -lm) || continue
+      flags=($(pkg-config --cflags --libs $libs 2>>"$RUN/helpers-build.log") -lm) || { rc=1; continue; }
     fi
-    gcc -O2 -Wall -o "$out.tmp" "$src" "${flags[@]}" 2>>"$RUN/helpers-build.log" && mv -f "$out.tmp" "$out" || rm -f "$out.tmp"
+    gcc -O2 -Wall -o "$out.tmp" "$src" "${flags[@]}" 2>>"$RUN/helpers-build.log" && mv -f "$out.tmp" "$out" \
+      || { rm -f "$out.tmp"; rc=1; }
   done
+  return $rc
+}
+
+# build_helpers, with a failure on the bar's red error pill. Its own error name: the watchdog clears
+# errors/panels once panels has run 5 s, and a stale binary runs fine.
+build_report() {
+  if build_helpers; then clear_error build
+  else set_error build "building the C helpers failed, running the last built version: $RUN/helpers-build.log"; fi
 }
 
 # bar popups (calendar, battery, network, Wi-Fi list, system) + clock click strip: helpers/panels.c, resident
@@ -129,7 +140,7 @@ why() {
   local f="$RUN/${LOG[$1]}.log" line sig
   sig=$(coredumpctl --no-pager -q list --since=-30s "$(command -v "$1")" 2>/dev/null | awk '$(NF-3) ~ /^SIG/ {s=$(NF-3)} END {print s}')
   line=$(grep -aiE 'error|critical|fail|panic|abort|segmentation|invalid|unknown|cannot|not found' "$f" 2>/dev/null \
-         | grep -viE 'Theme parser error|DispatchNotifier|gtk_icon_theme_lookup|libadwaita' | tail -2 \
+         | grep -viE 'Theme parser error|DispatchNotifier|gtk_icon_theme_lookup' | tail -2 \
          | sed -E 's/^\[[^]]*\] *//; s/^\([^)]*\): *//; s/^ +//' | paste -sd' ' | cut -c1-240)
   if [[ $sig == SIG* ]]; then echo "crashed ($sig)${line:+. Last error: $line}"
   elif [[ $line ]]; then echo "$line"
@@ -232,7 +243,7 @@ stop_components() {
 
 start_components() {
   local err stamp="$GEN/.applied"
-  build_helpers   # first: the render below is helpers/panels.c (panels --apply)
+  build_report   # first: the render below is helpers/panels.c (panels --apply)
   # re-render only when settings.json or a repo config changed since the last render.
   # HYPRMINIMAL_FORCE_APPLY=1 renders anyway.
   if [[ ${HYPRMINIMAL_FORCE_APPLY:-} || ! -f $stamp ]] \
@@ -306,9 +317,8 @@ case ${1:-} in
     ;;
   watchdog) watchdog ;;
   build)
-    mkdir -p "$RUN"; build_helpers
-    [[ -x $GEN/bin/panels && ! $DIR/helpers/panels.c -nt $GEN/bin/panels ]] \
-      || { echo "building helpers/panels.c failed: $RUN/helpers-build.log" >&2; exit 1; }
+    mkdir -p "$RUN"
+    build_helpers || { echo "building the C helpers failed: $RUN/helpers-build.log" >&2; exit 1; }
     ;;
   status)
     [[ -e $RUN/active ]] && echo "hyprminimal: active" || echo "hyprminimal: stopped"

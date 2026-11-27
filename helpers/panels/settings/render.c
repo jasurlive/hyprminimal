@@ -194,43 +194,6 @@ static JsonArray *cfg_startup(void) {
     return json_object_get_array_member(o, "commands");
 }
 
-static void load_settings(void) {
-    paths_init();
-    if (CFG) json_node_unref(CFG);
-    CFG = json_parse_text(DEFAULTS_JSON, NULL);
-    char *text = NULL;
-    if (g_file_get_contents(SETTINGS_PATH, &text, NULL, NULL)) {
-        JsonNode *over = json_parse_text(text, NULL);
-        if (over && JSON_NODE_HOLDS_OBJECT(over)) deep_merge(json_node_get_object(CFG), json_node_get_object(over));
-        if (over) json_node_unref(over);
-    }
-    g_free(text);
-}
-
-// write path only on a real change (programs that watch it reload once), atomically
-static gboolean write_if_changed(const char *path, const char *data, gssize len) {
-    if (len < 0) len = strlen(data);
-    char *old = NULL;
-    gsize olen = 0;
-    gboolean same = g_file_get_contents(path, &old, &olen, NULL) && olen == (gsize)len && !memcmp(old, data, len);
-    g_free(old);
-    if (same) return TRUE;
-    return g_file_set_contents(path, data, len, NULL);
-}
-
-static void save_settings(void) {
-    char *s = json_dump(CFG), *t = g_strconcat(s, "\n", NULL);
-    write_if_changed(SETTINGS_PATH, t, -1);
-    g_free(s);
-    g_free(t);
-}
-
-static void gen_write(const char *name, const char *text) {
-    char *p = g_build_filename(GEN, name, NULL);
-    write_if_changed(p, text, -1);
-    g_free(p);
-}
-
 // ---------------------------------------------------------------- failures shown in Settings and on the bar
 static char *read_error(const char *comp) {
     paths_init();
@@ -258,6 +221,72 @@ static void write_error(const char *comp, const char *msg) {
                       NULL, NULL, NULL, NULL);
     }
     g_free(dir);
+    g_free(p);
+}
+
+// ---------------------------------------------------------------- settings.json
+static gboolean CFG_BROKEN;   // settings.json exists but isn't valid JSON: never overwrite it
+
+// settings.json as an object node (NULL when missing or broken); a broken file sets CFG_BROKEN and the error
+static JsonNode *read_settings_file(void) {
+    char *text = NULL;
+    JsonNode *n = NULL;
+    CFG_BROKEN = FALSE;
+    if (g_file_get_contents(SETTINGS_PATH, &text, NULL, NULL)) {
+        GError *e = NULL;
+        n = json_parse_text(text, &e);
+        if (!n || !JSON_NODE_HOLDS_OBJECT(n)) {
+            CFG_BROKEN = TRUE;
+            char *msg = g_strdup_printf("settings.json is not valid JSON (%s); your file was not changed",
+                                        e ? e->message : "not an object");
+            write_error("settings", msg);
+            g_free(msg);
+            if (n) json_node_unref(n);
+            n = NULL;
+        }
+        g_clear_error(&e);
+    }
+    g_free(text);
+    return n;
+}
+
+static void load_settings(void) {
+    paths_init();
+    if (CFG) json_node_unref(CFG);
+    CFG = json_parse_text(DEFAULTS_JSON, NULL);
+    JsonNode *over = read_settings_file();
+    if (over) {
+        deep_merge(json_node_get_object(CFG), json_node_get_object(over));
+        json_node_unref(over);
+    }
+}
+
+// write path only on a real change (programs that watch it reload once), atomically
+static gboolean write_if_changed(const char *path, const char *data, gssize len) {
+    if (len < 0) len = strlen(data);
+    char *old = NULL;
+    gsize olen = 0;
+    gboolean same = g_file_get_contents(path, &old, &olen, NULL) && olen == (gsize)len && !memcmp(old, data, len);
+    g_free(old);
+    if (same) return TRUE;
+    return g_file_set_contents(path, data, len, NULL);
+}
+
+// FALSE: settings.json is broken on disk (also when it broke while Settings was open), nothing written
+static gboolean save_settings(void) {
+    JsonNode *disk = read_settings_file();
+    if (disk) json_node_unref(disk);
+    if (CFG_BROKEN) return FALSE;   // fix or delete settings.json first
+    char *s = json_dump(CFG), *t = g_strconcat(s, "\n", NULL);
+    write_if_changed(SETTINGS_PATH, t, -1);
+    g_free(s);
+    g_free(t);
+    return TRUE;
+}
+
+static void gen_write(const char *name, const char *text) {
+    char *p = g_build_filename(GEN, name, NULL);
+    write_if_changed(p, text, -1);
     g_free(p);
 }
 
@@ -749,6 +778,12 @@ static void gtk_theme(void) {
 // `panels --apply`: regenerate everything from settings.json; `panels --toggle-bar`: flip Bar → Hide bar
 static int settings_cli(const char *what) {
     load_settings();
+    if (CFG_BROKEN) {   // keep the file and the last working .generated/: bin/hyprminimal shows this line
+        char *why = read_error("settings");
+        fprintf(stderr, "%s. Fix it or delete it\n", why);
+        g_free(why);
+        return 1;
+    }
     if (!strcmp(what, "--toggle-bar")) cfg_set_bool("bar", "hidden", !cfg_bool("bar", "hidden"));
     if (!strcmp(what, "--toggle-bar") || !g_file_test(SETTINGS_PATH, G_FILE_TEST_EXISTS)) save_settings();
     GError *err = NULL;

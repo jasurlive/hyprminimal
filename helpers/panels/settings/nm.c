@@ -99,6 +99,7 @@ static gboolean nm_run(int timeout_s, char **argv, const char *input, char **out
     if (p && g_subprocess_communicate_utf8(p, input, NULL, &o, &r, &e)) ok = g_subprocess_get_successful(p);
     if (e) { g_free(r); r = g_strdup(e->message); g_error_free(e); }
     if (p) g_object_unref(p);
+    if (!out && o && input) explicit_bzero(o, strlen(o));   // nmcli's editor and --ask echo what they read
     if (out) *out = g_strstrip(o ? o : g_strdup("")); else g_free(o);
     if (err) *err = g_strstrip(r ? r : g_strdup("")); else g_free(r);
     return ok;
@@ -162,12 +163,15 @@ static char *nm_err_text(const char *err) {
     if (!err || !*err) return g_strdup("failed");
     char **l = g_strsplit(err, "\n", -1);
     char *r = NULL;
-    for (char **x = l; *x && !r; x++)
-        if (g_str_has_prefix(*x, "Error:")) {
-            r = g_strstrip(g_strdup(*x + 6));
+    for (char **x = l; *x && !r; x++) {
+        const char *v = g_str_has_prefix(*x, "Password:") ? *x + 9 : *x;   // nmcli --ask's prompt comes first
+        while (*v == ' ') v++;
+        if (g_str_has_prefix(v, "Error:")) {
+            r = g_strstrip(g_strdup(v + 6));
             size_t n = strlen(r);
             if (n && r[n - 1] == '.') r[n - 1] = 0;
         }
+    }
     if (!r) {
         int n = g_strv_length(l);
         r = g_strdup(n ? l[n - 1] : "failed");
@@ -542,7 +546,41 @@ static NmState *nm_fetch(gboolean rescan) {
     return d;
 }
 
+// set a saved profile's Wi-Fi password without putting it in argv: nmcli's editor reads commands from stdin.
+// The editor trims the value and exits 0 even when the save fails: only "successfully updated" means saved.
+static gboolean nm_set_psk(const char *uuid, const char *psk, char **err) {
+    size_t n = strlen(psk);
+    if (strchr(psk, '\n') || psk[0] == ' ' || (n && psk[n - 1] == ' ')) {
+        *err = g_strdup("the password can't start or end with a space");
+        return FALSE;
+    }
+    char *argv[] = {"nmcli", "connection", "edit", "uuid", (char *)uuid, NULL}, *e = NULL;
+    char *in = g_strdup_printf("set 802-11-wireless-security.psk %s\nsave persistent\nquit\n", psk);
+    gboolean ok = nm_run(15, argv, in, NULL, &e) && strstr(e, "successfully updated");
+    explicit_bzero(in, strlen(in));
+    g_free(in);
+    if (!ok) *err = nm_err_text(e);
+    g_free(e);
+    return ok;
+}
+
 // ---------------------------------------------------------------- hotspot
+// add the "Hotspot" profile (as `nmcli device wifi hotspot` makes it), its password set without argv: its uuid,
+// or NULL + *err. Removed again if the password fails, so no profile without one is left behind.
+static char *nm_hotspot_add(const char *dev, const char *ssid, const char *psk, const char *band, char **err) {
+    char *uuid = g_uuid_string_random(), *e = NULL;
+    gboolean ok = nmcli(NULL, &e, "connection", "add", "type", "wifi", "ifname", dev, "con-name", "Hotspot",
+                        "connection.uuid", uuid, "autoconnect", "no", "ssid", ssid, "802-11-wireless.mode", "ap",
+                        "802-11-wireless.band", band && *band ? band : "", "ipv4.method", "shared",
+                        "ipv6.method", "ignore", "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.proto", "rsn",
+                        "wifi-sec.pairwise", "ccmp", "wifi-sec.group", "ccmp");
+    if (!ok) *err = nm_err_text(e);
+    else if (!(ok = nm_set_psk(uuid, psk, err))) nmcli(NULL, NULL, "connection", "delete", "uuid", uuid);
+    g_free(e);
+    if (!ok) g_clear_pointer(&uuid, g_free);
+    return uuid;
+}
+
 // ssid, psk, band: what to share as. hs: its saved profile or NULL. *err on failure.
 static gboolean nm_hotspot_up(NmState *d, NmConn *hs, const char *ssid, const char *psk, const char *band, char **err) {
     // NetworkManager's shared mode hands out addresses with dnsmasq; without it the access point comes up,
@@ -551,38 +589,32 @@ static gboolean nm_hotspot_up(NmState *d, NmConn *hs, const char *ssid, const ch
         *err = g_strdup("dnsmasq is not installed (sudo pacman -S dnsmasq)");
         return FALSE;
     }
+    // no saved profile yet and nm_new_psk() failed (the Hotspot password set in Settings is 8+ characters)
+    if (!hs && (!psk || strlen(psk) < 8)) { *err = g_strdup("Couldn't generate a password"); return FALSE; }
     if (!d->radio) { nmcli(NULL, NULL, "radio", "wifi", "on"); g_usleep(1500000); }
     char *input = g_strdup_printf("%s\n%s\n", ssid, psk);
     gboolean ok;
     if (d->concurrent && d->active) {
         // stay on the Wi-Fi network: the helper runs the hotspot on a second interface, on the network's
         // channel; the profile keeps its name and password (made here the first time)
-        ok = TRUE;
-        if (!hs) {
-            char *e = NULL;
-            ok = nmcli(NULL, &e, "connection", "add", "type", "wifi", "ifname", d->wdev, "con-name", "Hotspot",
-                       "autoconnect", "no", "ssid", ssid, "802-11-wireless.mode", "ap", "ipv4.method", "shared",
-                       "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", psk);
-            if (!ok) *err = e; else g_free(e);
-        }
+        char *added = hs ? NULL : nm_hotspot_add(d->wdev, ssid, psk, band, err);
+        ok = hs || added;
+        g_free(added);
         if (ok) ok = nm_iface_helper("start", d->wdev, input, err);
+        explicit_bzero(input, strlen(input));
         g_free(input);
         return ok;
     }
+    explicit_bzero(input, strlen(input));
     g_free(input);
     if (nm_helper_running()) nm_iface_helper("stop", NULL, NULL, NULL);
-    char *e = NULL;
-    if (hs) {
-        ok = nmcli(NULL, &e, "connection", "modify", hs->uuid, "connection.interface-name", d->wdev, "802-11-wireless.channel", "0");
-        if (ok) { g_free(e); e = NULL; ok = nmcli_t(40, NULL, &e, "connection", "up", hs->uuid, NULL); }
-    } else if (band && *band) {
-        ok = nmcli_t(40, NULL, &e, "device", "wifi", "hotspot", "ifname", d->wdev, "con-name", "Hotspot",
-                     "ssid", ssid, "password", psk, "band", band, NULL);
-    } else {
-        ok = nmcli_t(40, NULL, &e, "device", "wifi", "hotspot", "ifname", d->wdev, "con-name", "Hotspot",
-                     "ssid", ssid, "password", psk, NULL);
-    }
-    if (!ok) { *err = nm_err_text(e); g_free(e); } else g_free(e);
+    char *uuid = hs ? g_strdup(hs->uuid) : nm_hotspot_add(d->wdev, ssid, psk, band, err), *e = NULL;
+    if (!uuid) return FALSE;
+    ok = !hs || nmcli(NULL, &e, "connection", "modify", uuid, "connection.interface-name", d->wdev, "802-11-wireless.channel", "0");
+    if (ok) { g_free(e); e = NULL; ok = nmcli_t(40, NULL, &e, "connection", "up", uuid, NULL); }
+    if (!ok) *err = nm_err_text(e);
+    g_free(e);
+    g_free(uuid);
     return ok;
 }
 
@@ -595,11 +627,14 @@ static gboolean nm_hotspot_down(NmConn *hs, char **err) {
     return ok;
 }
 
-static char *nm_new_psk(void) {   // 12 random URL-safe characters
+static char *nm_new_psk(void) {   // 12 random URL-safe characters, from the kernel CSPRNG; NULL if it fails
     static const char abc[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    unsigned char b[12];
+    if (getrandom(b, sizeof b, 0) != (ssize_t)sizeof b) return NULL;
     char *s = g_malloc(13);
-    for (int i = 0; i < 12; i++) s[i] = abc[g_random_int_range(0, 64)];
+    for (int i = 0; i < 12; i++) s[i] = abc[b[i] & 63];   // 64 symbols: & 63 keeps it uniform
     s[12] = 0;
+    explicit_bzero(b, sizeof b);
     return s;
 }
 

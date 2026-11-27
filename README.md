@@ -54,4 +54,4 @@ The ones to learn first. **All shortcuts: [KEYBINDINGS.md](KEYBINDINGS.md)**, or
 | Lock | hyprlock | `hyprlock/` |
 | Settings | C helper (GTK4), part of the popup program | `helpers/panels/settings/`, `settings/panels.css`, `settings.json` |
 
-Keybind edits are backed up to `~/.config/hypr/.pre-hyprminimal-backup/`.
+Keybind edits are backed up to `~/.config/hypr/.pre-hyprminimal-backup/` (the newest 10 are kept).

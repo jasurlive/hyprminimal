@@ -37,7 +37,9 @@ static void np_reload(gboolean rescan);
 static void np_open_advanced(ConnRef *c);
 
 // ---------------------------------------------------------------- jobs: nmcli steps in a worker thread
-typedef struct { char **argv; int timeout; char *input; gboolean helper; } Step;   // helper: argv after pkexec helper
+// helper: argv after pkexec helper; psk: argv = {uuid}, input = the password for nm_set_psk().
+// input (stdin) may hold a password: wiped in job_free
+typedef struct { char **argv; int timeout; char *input; gboolean helper, psk; } Step;
 typedef struct {
     GPtrArray *steps;
     gboolean (*fn)(gpointer data, char **err);   // or a custom job
@@ -51,6 +53,7 @@ static void job_free(gpointer p) {
     for (guint i = 0; j->steps && i < j->steps->len; i++) {
         Step *s = g_ptr_array_index(j->steps, i);
         g_strfreev(s->argv);
+        if (s->input) explicit_bzero(s->input, strlen(s->input));
         g_free(s->input);
         g_free(s);
     }
@@ -93,6 +96,25 @@ static void job_nmcli_v(Job *j, int timeout, char **args) {   // takes args (NUL
     g_ptr_array_add(j->steps, s);
 }
 
+// `nmcli --ask ARGS…` with the Wi-Fi password on stdin (never in argv, where any process can read it)
+static void job_nmcli_ask(Job *j, int timeout, const char *pw, char **args) {
+    GPtrArray *a = g_ptr_array_new();
+    g_ptr_array_add(a, g_strdup("--ask"));
+    for (char **x = args; *x; x++) g_ptr_array_add(a, g_strdup(*x));
+    g_ptr_array_add(a, NULL);
+    job_nmcli_v(j, timeout, (char **)g_ptr_array_free(a, FALSE));
+    Step *s = g_ptr_array_index(j->steps, j->steps->len - 1);
+    s->input = g_strconcat(pw, "\n", NULL);
+}
+
+static void job_set_psk(Job *j, const char *uuid, const char *psk) {   // a saved profile's password: nm_set_psk()
+    Step *s = g_new0(Step, 1);
+    s->argv = g_strdupv((char *[]){(char *)uuid, NULL});
+    s->input = g_strdup(psk);
+    s->psk = TRUE;
+    g_ptr_array_add(j->steps, s);
+}
+
 static void job_helper_start(Job *j, const char *dev, const char *ssid, const char *psk) {
     Step *s = g_new0(Step, 1);
     s->argv = g_strdupv((char *[]){"start", (char *)dev, NULL});
@@ -110,9 +132,10 @@ static void job_work(GTask *t, gpointer src, gpointer d, GCancellable *c) {
     for (guint i = 0; ok && j->steps && i < j->steps->len; i++) {
         Step *s = g_ptr_array_index(j->steps, i);
         if (s->helper) ok = nm_iface_helper(s->argv[0], s->argv[1], s->input, &err);
+        else if (s->psk) ok = nm_set_psk(s->argv[0], s->input, &err);
         else {
             char *e = NULL;
-            ok = nm_run(s->timeout, s->argv, NULL, NULL, &e);
+            ok = nm_run(s->timeout, s->argv, s->input, NULL, &e);
             if (!ok) err = nm_err_text(e);
             g_free(e);
         }
@@ -255,13 +278,12 @@ static void details_rows(GtkWidget *list, GPtrArray *det) {   // IP, gateway, DN
     }
 }
 
-typedef struct { ConnRef *c; char *psk; } PwData;
 static void pw_apply(GtkWidget *e, gpointer d) {
     ConnRef *c = d;
     const char *pw = gtk_editable_get_text(GTK_EDITABLE(e));
     if (g_utf8_strlen(pw, -1) < 8) { settings_toast("Wi-Fi passwords are at least 8 characters", 3); return; }
     Job *j = job_new("Password saved");
-    job_nmcli(j, 15, "connection", "modify", c->uuid, "802-11-wireless-security.psk", pw, NULL);
+    job_set_psk(j, c->uuid, pw);
     if (c->active) job_nmcli(j, 40, "connection", "up", c->uuid, NULL);   // reconnect so the new password is used now
     np_act("Saving password…", j);
 }
@@ -332,7 +354,7 @@ static void join_apply(GtkWidget *e, gpointer ssid) {   // unknown secured netwo
     if (!*pw) return;
     char *ok = g_strdup_printf("Connected to %s", (char *)ssid), *m = g_strdup_printf("Connecting to %s…", (char *)ssid);
     Job *j = job_new(ok);
-    job_nmcli(j, 40, "device", "wifi", "connect", (char *)ssid, "password", pw, NULL);
+    job_nmcli_ask(j, 40, pw, (char *[]){"device", "wifi", "connect", ssid, NULL});
     np_act(m, j);
     g_free(ok); g_free(m);
 }
@@ -388,7 +410,7 @@ static void hidden_go(GtkWidget *e, gpointer name) {
     const char *pw = gtk_editable_get_text(GTK_EDITABLE(e));
     char *ok = g_strdup_printf("Connected to %s", ssid), *m = g_strdup_printf("Connecting to %s…", ssid);
     Job *j = job_new(ok);
-    if (*pw) job_nmcli(j, 40, "device", "wifi", "connect", ssid, "hidden", "yes", "password", pw, NULL);
+    if (*pw) job_nmcli_ask(j, 40, pw, (char *[]){"device", "wifi", "connect", ssid, "hidden", "yes", NULL});
     else job_nmcli(j, 40, "device", "wifi", "connect", ssid, "hidden", "yes", NULL);
     np_act(m, j);
     g_free(ok); g_free(m); g_free(ssid);
@@ -629,10 +651,10 @@ static void hs_save(const char *key, const char *value) {
         settings_toast("Saved", 3);
         return;
     }
-    const char *prop = !strcmp(key, "ssid") ? "802-11-wireless.ssid" : !strcmp(key, "psk") ? "802-11-wireless-security.psk"
-                                                                                             : "802-11-wireless.band";
     Job *j = job_new("Saved");
-    job_nmcli(j, 15, "connection", "modify", hs->uuid, prop, value, NULL);
+    if (!strcmp(key, "psk")) job_set_psk(j, hs->uuid, value);
+    else job_nmcli(j, 15, "connection", "modify", hs->uuid, !strcmp(key, "ssid") ? "802-11-wireless.ssid" : "802-11-wireless.band",
+                   value, NULL);
     if (hs->alongside) {
         const char *ssid = !strcmp(key, "ssid") ? value : hs->ssid, *psk = !strcmp(key, "psk") ? value : hs->psk;
         job_helper_start(j, NP.d->wdev, ssid, psk);
@@ -811,6 +833,7 @@ static GtkWidget *page_network(void) {
     gethostname(host, sizeof host - 1);
     NP.hs_ssid = g_strdup(host);
     NP.hs_psk = nm_new_psk();
+    if (!NP.hs_psk) NP.hs_psk = g_strdup("");   // starting the hotspot then says so (nm_hotspot_up)
     NP.hs_band = g_strdup("");
     GtkWidget *sc = page_new(&NP.page);
     GtkWidget *g = group_new(NP.page, NULL, NULL);

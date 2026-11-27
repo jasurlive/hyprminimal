@@ -22,6 +22,7 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 | `hyprminimal stop` | Stops hyprminimal, for this session only. |
 | `hyprminimal restart` | Restarts everything, including the settings process. Run it after editing any file in this folder by hand. |
 | `hyprminimal respawn NAME` | Restarts one component: `waybar` or `panels` (popups, control center, notifications, OSD; rebuilt first if its C source changed). |
+| `hyprminimal build` | Builds the C helpers (`helpers/*.c`, with `helpers/NAME/`) that are older than their source. Exits with an error, and leaves the last built version in place, if one fails to compile; the compiler output is in `helpers-build.log`. `start`, `restart` and `respawn panels` build too, and show a failure as the bar's red error pill. |
 | `hyprminimal status` | Shows whether hyprminimal is active, every process it runs with its memory (PSS: shared libraries split between the processes using them, so the total is real), and any missing packages. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
 
@@ -261,7 +262,7 @@ change. Nothing on the bar reacts to hovering: tooltips are off, info opens on c
 
 **Other apps.** GTK apps are dark too: on every theme change (and at the first start)
 Settings sets `gsettings` `color-scheme` and `gtk-theme` (`adw-gtk3-dark`, so GTK3 apps like
-blueman match the libadwaita ones) and the same keys in `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
+blueman match the GTK4 ones) and the same keys in `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
 (`QT_QPA_PLATFORMTHEME=qt6ct` in `startup.lua`, dark palette in `~/.config/qt6ct/qt6ct.conf`; change it with
 the `qt6ct` app). Electron apps (VS Code, Discord, …) follow the dark setting through the desktop portal; VS
 Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu bar stays light on Wayland.
@@ -287,7 +288,7 @@ Super+H opens the editor. From it you can search,
 edit, record a new key combo, add shortcuts and remove them.
 
 Every save goes through these steps:
-1. `~/.config/hypr/keybind.lua` is backed up to `~/.config/hypr/.pre-hyprminimal-backup/`.
+1. `~/.config/hypr/keybind.lua` is backed up to `~/.config/hypr/.pre-hyprminimal-backup/` (the newest 10 backups are kept).
 2. Hyprland reloads.
 3. If Hyprland reports an error, the change is undone automatically.
 
@@ -377,9 +378,11 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 - Test it with `hyprminimal-settings --apply`, which prints the error.
 
 **`settings.json` is broken (bad JSON)**
-- If the file can't be parsed, hyprminimal uses the **defaults** for everything.
-- ⚠️ If you change anything in Settings while the file is broken, Settings saves the defaults over it. Fix the file first.
+- If settings.json is broken, hyprminimal keeps your file and the last working look; fix or delete it.
+- Nothing overwrites the file while it's broken: `hyprminimal start`, Settings and Super+M refuse to save, and
+  the bar's red error pill and the General page of Settings say why. Deleting the file starts over from the defaults.
 - Find the problem with `jq . ~/www/hyprminimal/settings.json`. It prints the line with the error.
+- After fixing it, press **Apply again** in Settings → General (or run `hyprminimal restart`).
 
 **Settings (Super+I) doesn't open, or shows stale pages**
 - Settings is a window of the resident popup program (`helpers/panels.c`, `helpers/panels/settings/`): closing it

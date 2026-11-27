@@ -240,7 +240,11 @@ static gboolean fire_change(gpointer d) {
 
 // save + render now, reload the affected part shortly after (debounced)
 static void changed(int what) {
-    save_settings();
+    if (!save_settings()) {   // broken settings.json: keep it, and the running shell as it is
+        settings_toast("Not saved: settings.json is not valid JSON. Fix it or delete it, then Apply again", 6);
+        update_banners();
+        return;
+    }
     GError *err = NULL;
     if (!render(&err)) {   // the running shell keeps its last rendered files
         char *m = g_strdup_printf("Not applied: %s", err ? err->message : "render failed");
@@ -461,7 +465,7 @@ static GtkWidget *page_bar(void) {
 static void settings_bar_toggled(void) {
     if (!CFG) load_settings();
     cfg_set_bool("bar", "hidden", !cfg_bool("bar", "hidden"));
-    save_settings();
+    if (!save_settings()) return;   // broken settings.json: the bar still toggled, just not remembered
     GError *err = NULL;
     if (!render(&err)) { write_error("settings", err ? err->message : "render failed"); g_clear_error(&err); return; }
     if (SW.hide_bar && gtk_switch_get_active(GTK_SWITCH(SW.hide_bar)) != cfg_bool("bar", "hidden")) {
