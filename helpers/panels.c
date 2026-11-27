@@ -1,20 +1,22 @@
-// pkg-config: gtk4-layer-shell-0 gtk4
+// pkg-config: gtk4-layer-shell-0 gtk4 json-glib-1.0 gio-unix-2.0
 // hyprminimal's resident GTK4 program: everything on screen except the bar and the Settings window.
 // Built by bin/hyprminimal into .generated/bin/panels; a component of `hyprminimal start` (the watchdog
 // restarts it). Software rendering, reads /proc and /sys directly; nmcli, wpctl and the hotspot helper
-// (settings/nm.py) run off the UI thread.
+// (helpers/panels/settings/nm.c) run off the UI thread.
 //   bar popups: calendar (clock), battery, network, Wi-Fi list, system; launcher (Super+R), session menu
-//   control center (Super+S) and the notification daemon (helpers/panels/control.c, notify.c; was swaync)
-//   volume / brightness OSD (helpers/panels/osd.c; was swayosd)
+//   the Settings window (Super+I) and its render engine: `panels --apply` regenerates .generated/* from
+//   settings.json without opening a window (helpers/panels/settings/)
+//   control center (Super+S) and the notification daemon (helpers/panels/control.c, notify.c)
+//   volume / brightness OSD (helpers/panels/osd.c)
 //   desktop background (theme colour + Arch logo), the clock click strip on the bar
-//   (.generated/clock_zone.json), the click-outside catcher for rofi popups, and the Hyprland event watch
-//   that closes the control center on a workspace switch
+//   (.generated/clock_zone.json), and the Hyprland event watch that closes the control center on a workspace switch
 // Theme: .generated/panels.css (written by `hyprminimal-settings --apply`), reloaded live; popup position
 // and timeout: .generated/notify.conf.
 // D-Bus (org.gtk.Actions on dev.hyprminimal.Panels, /dev/hyprminimal/Panels), used by bin/hyprminimal-msg:
 //   panel s       toggle a popup: calendar | battery | network | wifi | system | launcher | session | control
+//   settings s    Settings: toggle | a page (general, bar, notifications, startup, network, nightlight, keybinds, …)
+//   settings-close, bar-toggled (Super+M: save Bar → Hide bar)
 //   panel-close   close the open popup (Hyprland, on a click outside it)
-//   catch s       a rofi popup is open (its process name; "" = it closed): outside clicks close it
 //   osd s         volume:+N | volume:-N | volume:mute | brightness:+N | brightness:-N
 //   dnd s         on | off | toggle (Do not disturb)
 //   quit
@@ -22,6 +24,10 @@
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
 #include <gtk4-layer-shell.h>
+#include <gdk/wayland/gdkwayland.h>
+#include <gio/gdesktopappinfo.h>
+#include <json-glib/json-glib.h>
+#include <pango/pangocairo.h>
 #include <gio/gunixsocketaddress.h>
 #include <glib/gstdio.h>
 #include <math.h>
@@ -40,6 +46,10 @@
 static GtkApplication *app;
 static char *REPO, *GEN;         // repo, repo/.generated
 static gboolean LS;              // layer shell available (Wayland compositor supports it)
+
+// themes, settings.json and the files rendered from it (also `panels --apply`, no window)
+#include "panels/settings/themes.c"
+#include "panels/settings/render.c"
 
 // --------------------------------------------------------------------------- small helpers
 static gboolean read_small(const char *path, char *buf, size_t n) {
@@ -159,6 +169,9 @@ static void spawn_detached(const char *const *argv) {
     g_spawn_async(NULL, (char **)argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL |
                   G_SPAWN_STDERR_TO_DEV_NULL, NULL, NULL, NULL, NULL);
 }
+
+// NetworkManager: Wi-Fi, Ethernet, VPN, hotspot (Settings → Network and the network popup)
+#include "panels/settings/nm.c"
 
 // --------------------------------------------------------------------------- panel base
 typedef struct Panel Panel;
@@ -729,27 +742,20 @@ static gboolean on_wifi_switch(GtkSwitch *sw, gboolean on, gpointer d) {
     return FALSE;
 }
 
-// hotspot: settings/nm.py holds the logic (NetworkManager profile or the side-by-side hostapd helper)
+// hotspot: helpers/panels/settings/nm.c holds the logic (NetworkManager profile or the side-by-side hostapd helper)
 static void hs_status_work(GTask *t, gpointer s, gpointer d, GCancellable *c) {
-    (void)s; (void)c;
-    const char *nm = d;
+    (void)s; (void)d; (void)c;
     HsInfo *h = g_new0(HsInfo, 1);
-    char *out = cmd_out(20, "python3", "-I", nm, "hotspot-status", NULL);
-    char **l = g_strsplit(out ? out : "", "\n", -1);
-    for (char **x = l; *x; x++) {
-        char *v = strchr(*x, '=');
-        if (!v) continue;
-        *v++ = 0;
-        h->ok = TRUE;
-        if (!strcmp(*x, "supported")) h->supported = atoi(v);
-        else if (!strcmp(*x, "on")) h->on = atoi(v);
-        else if (!strcmp(*x, "together")) h->together = atoi(v);
-        else if (!strcmp(*x, "station")) h->station = atoi(v);
-        else if (!strcmp(*x, "clients")) h->clients = atoi(v);
-        else if (!strcmp(*x, "ssid")) h->ssid = g_strdup(v);
-    }
-    g_strfreev(l);
-    g_free(out);
+    NmState *st = nm_base_state();
+    NmConn *hs = st->hotspot;
+    h->ok = TRUE;
+    h->supported = st->wdev && st->ap;
+    h->on = hs && hs->active;
+    h->ssid = g_strdup(hs ? hs->ssid : "");
+    h->clients = hs && hs->clients ? (int)hs->clients->len / 2 : 0;
+    h->together = st->concurrent;
+    h->station = st->active != NULL;
+    nm_state_free(st);
     g_task_return_pointer(t, h, hs_free);
 }
 
@@ -782,27 +788,20 @@ static void hs_status_done(GObject *src, GAsyncResult *res, gpointer gen) {
     if (h) hs_free(h);
 }
 
-static char *nm_py(void) { return g_build_filename(REPO, "settings", "nm.py", NULL); }
-
 static void hs_info(void) {
     if (N.hs_running) return;
     N.hs_running = TRUE;
     GTask *t = g_task_new(NULL, NULL, hs_status_done, GUINT_TO_POINTER(N.gen));
-    g_task_set_task_data(t, nm_py(), g_free);
     g_task_run_in_thread(t, hs_status_work);
     g_object_unref(t);
 }
 
-static void hs_set_work(GTask *t, gpointer s, gpointer d, GCancellable *c) {
-    (void)s; (void)d; (void)c;
-    char **argv = g_task_get_task_data(t);
-    char *err = NULL;
-    int status = 0;
+static void hs_set_work(GTask *t, gpointer s, gpointer on, GCancellable *c) {
+    (void)s; (void)c;
     HsInfo *h = g_new0(HsInfo, 1);
-    if (g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH | G_SPAWN_STDOUT_TO_DEV_NULL, NULL, NULL, NULL, &err,
-                     &status, NULL))
-        h->ok = g_spawn_check_wait_status(status, NULL);
-    h->err = err ? g_strstrip(err) : g_strdup("unknown error");
+    char *err = NULL;
+    h->ok = nm_hotspot_set(GPOINTER_TO_INT(on), &err);
+    h->err = err ? err : g_strdup("unknown error");
     g_task_return_pointer(t, h, hs_free);
 }
 
@@ -835,24 +834,18 @@ static gboolean on_hs_switch(GtkSwitch *sw, gboolean on, gpointer d) {
     gtk_widget_set_sensitive(N.hs_sw, FALSE);
     gtk_widget_remove_css_class(N.hs_sub, "hs-error");
     gtk_label_set_label(GTK_LABEL(N.hs_sub), on ? "Starting…" : "Stopping…");
-    char *nm = nm_py();
-    char **argv = g_new0(char *, 6);
-    argv[0] = g_strdup("python3"); argv[1] = g_strdup("-I"); argv[2] = nm;
-    argv[3] = g_strdup("hotspot"); argv[4] = g_strdup(on ? "on" : "off");
     GTask *t = g_task_new(NULL, NULL, hs_set_done, GINT_TO_POINTER(on));
-    g_task_set_task_data(t, argv, (GDestroyNotify)g_strfreev);
+    g_task_set_task_data(t, GINT_TO_POINTER(on), NULL);
     g_task_run_in_thread(t, hs_set_work);
     g_object_unref(t);
     return FALSE;
 }
 
+static void settings_present(const char *page);
 static void on_net_settings(GtkButton *b, gpointer d) {
     (void)b; (void)d;
     manager_close();
-    char *bin = g_build_filename(REPO, "bin", "hyprminimal-settings", NULL);
-    const char *argv[] = {bin, "--page", "network", NULL};
-    spawn_detached(argv);
-    g_free(bin);
+    settings_present("network");
 }
 
 static void manager_toggle(const char *kind);
@@ -1659,8 +1652,8 @@ static GtkWidget *system_panel_win(void) { return sysp.win; }
 // --------------------------------------------------------------------------- launcher (Super+R)
 // Numbered app list: apps are numbered A-Z (numbers stay the same between runs), the 5 launched last are
 // pinned on top, newest first. Type to search, a number + Enter launches that app, "rm NAME" / "rm NUMBER"
-// + Enter uninstalls it in a terminal that asks first. The list is scripts/launcher.py's cache, shared with
-// the rofi fallback (helpers/launcher.c), and rebuilt when an applications folder changes (inotify).
+// + Enter uninstalls it in a terminal that asks first. The list is a cache file (rebuild_work), rebuilt
+// when an applications folder changes (inotify).
 #define KEEP_RECENT 5
 #define LAUNCHER_LINES 8
 
@@ -1718,12 +1711,13 @@ typedef struct {
 static struct {
     GPtrArray *apps;                       // LApp, A-Z: index + 1 = the app's number
     GArray *order;                         // int: the apps shown, top to bottom
-    GtkWidget *text, *list, *scroll;
-    int sel, row_h;
-    char *cache, *recent_path, *py;
+    GtkWidget *text, *list;
+    GtkWidget *filler[LAUNCHER_LINES];     // blank rows that keep the list LAUNCHER_LINES rows tall
+    int sel, top;                          // sel: index into order; top: first shown index
+    double acc;                            // touchpad scroll not yet a whole row
+    char *cache, *recent_path;
     char **recent;                         // app ids, newest first
-    GSubprocess *builder;
-    gboolean again;
+    gboolean building, again;
     guint rebuild_timer;
 } L;
 
@@ -1738,7 +1732,7 @@ static void lapp_free(gpointer d) {
 
 static void launcher_filter(void);
 
-// cache line: id \t desktop-file \t "NAME NUM rm" \t markup \t tail (scripts/launcher.py)
+// cache line: id \t desktop-file \t "NAME NUM rm" (rebuild_work)
 static void launcher_load(void) {
     char *text = NULL;
     if (!g_file_get_contents(L.cache, &text, NULL, NULL)) return;
@@ -1805,11 +1799,11 @@ static GPtrArray *app_dirs(void) {
     return d;
 }
 
-// cache missing, or older than an applications folder, a .desktop file in one or the builder
+// cache missing, or older than an applications folder or a .desktop file in one
 static gboolean launcher_stale(void) {
     struct stat cs;
     if (stat(L.cache, &cs) < 0 || cs.st_size == 0) return TRUE;
-    gboolean hit = mtime_after(L.py, &cs.st_mtim);
+    gboolean hit = FALSE;
     GPtrArray *dirs = app_dirs();
     for (guint i = 0; i < dirs->len && !hit; i++) {
         const char *dir = g_ptr_array_index(dirs, i);
@@ -1830,21 +1824,71 @@ static gboolean launcher_stale(void) {
 static void launcher_rebuild(void);
 
 static void rebuild_done(GObject *src, GAsyncResult *res, gpointer d) {
-    (void)d;
-    gboolean ok = g_subprocess_wait_check_finish(G_SUBPROCESS(src), res, NULL);
-    g_clear_object(&L.builder);
+    (void)src; (void)d;
+    gboolean ok = g_task_propagate_boolean(G_TASK(res), NULL);
+    L.building = FALSE;
     if (ok) launcher_load();
     if (L.again) { L.again = FALSE; launcher_rebuild(); }
 }
 
-// Python + Gio parses .desktop files correctly but costs ~150 ms: run in the background, never on a key press
+static char *cache_clean(const char *s) {   // no tabs, newlines or control separators inside a field
+    char *c = g_strdup(s ? s : "");
+    for (char *p = c; *p; p++)
+        if (*p == '\t' || *p == '\n' || *p == '\x1f' || *p == '\x1e') *p = ' ';
+    return c;
+}
+
+static gint app_name_cmp(gconstpointer a, gconstpointer b) {
+    char *x = g_utf8_casefold(g_app_info_get_display_name(*(GAppInfo *const *)a), -1);
+    char *y = g_utf8_casefold(g_app_info_get_display_name(*(GAppInfo *const *)b), -1);
+    int r = strcmp(x, y);   // code point order, like Python's sort of casefolded names
+    g_free(x); g_free(y);
+    return r;
+}
+
+// every visible app, A-Z (numbers stay the same between runs), one line each:
+//   id \t desktop-file \t "NAME NUM rm"   (search text: "rm" keeps the app listed while typing "rm fire")
+static void rebuild_work(GTask *t, gpointer s, gpointer d, GCancellable *c) {
+    (void)s; (void)d; (void)c;
+    GList *all = g_app_info_get_all();
+    GPtrArray *apps = g_ptr_array_new_with_free_func(g_object_unref);
+    GHashTable *seen = g_hash_table_new(g_str_hash, g_str_equal);
+    for (GList *l = all; l; l = l->next) {
+        GAppInfo *a = l->data;
+        const char *id = g_app_info_get_id(a);
+        if (g_app_info_should_show(a) && id && !g_hash_table_contains(seen, id) && G_IS_DESKTOP_APP_INFO(a) &&
+            g_desktop_app_info_get_filename(G_DESKTOP_APP_INFO(a))) {
+            g_hash_table_add(seen, (gpointer)id);
+            g_ptr_array_add(apps, g_object_ref(a));
+        }
+    }
+    g_ptr_array_sort(apps, app_name_cmp);
+    GString *out = g_string_new(NULL);
+    for (guint i = 0; i < apps->len; i++) {
+        GAppInfo *a = g_ptr_array_index(apps, i);
+        char *id = cache_clean(g_app_info_get_id(a)), *file = cache_clean(g_desktop_app_info_get_filename(G_DESKTOP_APP_INFO(a)));
+        char *name = cache_clean(g_app_info_get_display_name(a));
+        g_string_append_printf(out, "%s\t%s\t%s %u rm\n", id, file, name, i + 1);
+        g_free(id); g_free(file); g_free(name);
+    }
+    gboolean ok = g_file_set_contents(L.cache, out->str, out->len, NULL);
+    g_string_free(out, TRUE);
+    g_hash_table_unref(seen);
+    g_ptr_array_unref(apps);
+    g_list_free_full(all, g_object_unref);
+    g_task_return_boolean(t, ok);
+}
+
+// reading every .desktop file costs a little: in a worker thread, never on a key press
 static void launcher_rebuild(void) {
-    if (L.builder) { L.again = TRUE; return; }
+    if (L.building) { L.again = TRUE; return; }
     char *dir = g_path_get_dirname(L.cache);
     g_mkdir_with_parents(dir, 0755);
     g_free(dir);
-    L.builder = g_subprocess_new(G_SUBPROCESS_FLAGS_STDOUT_SILENCE, NULL, "python3", "-I", L.py, L.cache, NULL);
-    if (L.builder) g_subprocess_wait_check_async(L.builder, NULL, rebuild_done, NULL);
+    L.building = TRUE;
+    GTask *t = g_task_new(NULL, NULL, rebuild_done, NULL);
+    g_task_run_in_thread(t, rebuild_work);
+    g_object_unref(t);
 }
 
 static gboolean rebuild_later(gpointer d) { (void)d; L.rebuild_timer = 0; launcher_rebuild(); return G_SOURCE_REMOVE; }
@@ -1872,7 +1916,6 @@ static void launcher_init(void) {
     const char *xs = getenv("XDG_STATE_HOME");
     L.recent_path = xs && *xs ? g_build_filename(xs, "hyprminimal", "launcher-recent", NULL)
                               : g_build_filename(g_get_home_dir(), ".local", "state", "hyprminimal", "launcher-recent", NULL);
-    L.py = g_build_filename(REPO, "scripts", "launcher.py", NULL);
     L.apps = g_ptr_array_new_with_free_func(lapp_free);
     L.order = g_array_new(FALSE, FALSE, sizeof(int));
     GPtrArray *dirs = app_dirs();
@@ -1968,10 +2011,28 @@ static char **query_words(void) {
     return v;
 }
 
+// The list box only ever holds the LAUNCHER_LINES rows on screen (no scrolled window): moving past the
+// edge shifts which apps are shown by whole rows, so a row is never cut off or its highlight squashed.
+static void launcher_show(int sel) {
+    int n = L.order->len;
+    L.sel = n ? CLAMP(sel, 0, n - 1) : -1;
+    if (L.sel >= 0 && L.sel < L.top) L.top = L.sel;
+    if (L.sel >= L.top + LAUNCHER_LINES) L.top = L.sel - LAUNCHER_LINES + 1;
+    L.top = CLAMP(L.top, 0, MAX(0, n - LAUNCHER_LINES));
+    gtk_list_box_remove_all(GTK_LIST_BOX(L.list));
+    for (int k = 0; k < LAUNCHER_LINES; k++) {
+        int i = L.top + k;
+        gtk_list_box_append(GTK_LIST_BOX(L.list), i < n ? ((LApp *)g_ptr_array_index(L.apps,
+                            g_array_index(L.order, int, i)))->row : L.filler[k]);
+    }
+    if (L.sel >= 0) gtk_list_box_select_row(GTK_LIST_BOX(L.list),
+                                            gtk_list_box_get_row_at_index(GTK_LIST_BOX(L.list), L.sel - L.top));
+    else gtk_list_box_unselect_all(GTK_LIST_BOX(L.list));
+}
+
 static void launcher_filter(void) {
     if (!L.list) return;
     char **words = query_words();
-    gtk_list_box_remove_all(GTK_LIST_BOX(L.list));
     g_array_set_size(L.order, 0);
     Hit *hits = g_new(Hit, L.apps->len + 1);
     int nh = 0;
@@ -1989,14 +2050,11 @@ static void launcher_filter(void) {
         if (ok) hits[nh++] = (Hit){(int)i, score, a->rank};
     }
     qsort(hits, nh, sizeof *hits, hit_cmp);
-    for (int h = 0; h < nh; h++) {
-        g_array_append_val(L.order, hits[h].i);
-        gtk_list_box_append(GTK_LIST_BOX(L.list), ((LApp *)g_ptr_array_index(L.apps, hits[h].i))->row);
-    }
+    for (int h = 0; h < nh; h++) g_array_append_val(L.order, hits[h].i);
     g_free(hits);
     g_strfreev(words);
-    gtk_adjustment_set_value(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(L.scroll)), 0);
-    L.sel = menu_select(L.list, NULL, 0, nh);
+    L.top = 0;
+    launcher_show(nh ? 0 : -1);
 }
 
 static void on_query(GtkEditable *e, gpointer d) { (void)e; (void)d; launcher_filter(); }
@@ -2037,7 +2095,7 @@ static void launcher_activate(int sel, gboolean clicked) {
 
 static void on_app_row(GtkListBox *l, GtkListBoxRow *row, gpointer d) {
     (void)l; (void)d;
-    launcher_activate(gtk_list_box_row_get_index(row), TRUE);
+    if (gtk_list_box_row_get_activatable(row)) launcher_activate(L.top + gtk_list_box_row_get_index(row), TRUE);
 }
 
 static gboolean launcher_key(Panel *p, guint kv) {
@@ -2051,7 +2109,22 @@ static gboolean launcher_key(Panel *p, guint kv) {
     case GDK_KEY_Return: case GDK_KEY_KP_Enter: case GDK_KEY_ISO_Enter: launcher_activate(L.sel, FALSE); return TRUE;
     default: return FALSE;   // typing goes to the search field
     }
-    L.sel = menu_select(L.list, L.scroll, s, n);
+    launcher_show(s);
+    return TRUE;
+}
+
+// wheel / touchpad: shift the shown apps by whole rows (a notch = one row, touchpad: ~40 px = one row);
+// the selection stays on its app unless that app leaves the list, then it sticks to the edge row
+static gboolean on_launcher_scroll(GtkEventControllerScroll *c, double dx, double dy, gpointer d) {
+    (void)dx; (void)d;
+    L.acc += gtk_event_controller_scroll_get_unit(c) == GDK_SCROLL_UNIT_WHEEL ? dy : dy / 40;
+    int rows = (int)L.acc;
+    L.acc -= rows;
+    int n = L.order->len;
+    if (rows && n > LAUNCHER_LINES) {
+        L.top = CLAMP(L.top + rows, 0, n - LAUNCHER_LINES);
+        launcher_show(CLAMP(L.sel, L.top, L.top + LAUNCHER_LINES - 1));
+    }
     return TRUE;
 }
 
@@ -2072,33 +2145,26 @@ static void launcher_build(Panel *p, GtkWidget *body) {
     gtk_widget_set_focusable(L.list, FALSE);
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(L.list), GTK_SELECTION_SINGLE);
     g_signal_connect(L.list, "row-activated", G_CALLBACK(on_app_row), NULL);
-    L.scroll = gtk_scrolled_window_new();
-    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(L.scroll), GTK_POLICY_NEVER, GTK_POLICY_EXTERNAL);
-    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(L.scroll), L.list);
-    gtk_box_append(GTK_BOX(body), L.scroll);
+    // blank rows, same build as an app row, for when fewer apps match: the popup keeps its height
+    for (int k = 0; k < LAUNCHER_LINES; k++) {
+        GtkWidget *h = HBOX(14, NULL), *num = gtk_label_new(" ");
+        gtk_widget_add_css_class(num, "num");
+        gtk_box_append(GTK_BOX(h), num);
+        gtk_box_append(GTK_BOX(h), lbl(" ", "name", 0));
+        L.filler[k] = gtk_list_box_row_new();
+        gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(L.filler[k]), h);
+        gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(L.filler[k]), FALSE);
+        gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(L.filler[k]), FALSE);
+        gtk_widget_set_focusable(L.filler[k], FALSE);
+        gtk_widget_set_can_target(L.filler[k], FALSE);   // no hover highlight
+        g_object_ref_sink(L.filler[k]);
+    }
+    GtkEventController *sc = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    g_signal_connect(sc, "scroll", G_CALLBACK(on_launcher_scroll), NULL);
+    gtk_widget_add_controller(L.list, sc);
+    gtk_box_append(GTK_BOX(body), L.list);
     launcher_load();
     if (launcher_stale()) launcher_rebuild();
-}
-
-static void launcher_set_pitch(int h) {
-    L.row_h = h;
-    gtk_scrolled_window_set_min_content_height(GTK_SCROLLED_WINDOW(L.scroll), h * LAUNCHER_LINES);
-    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(L.scroll), h * LAUNCHER_LINES);
-}
-
-// row pitch = distance between the tops of rows 0 and 1 as laid out (height + margin), runs once per open
-static gboolean launcher_fix_pitch(GtkWidget *w, GdkFrameClock *fc, gpointer u) {
-    (void)fc; (void)u;
-    GtkListBoxRow *r0 = gtk_list_box_get_row_at_index(GTK_LIST_BOX(w), 0),
-                  *r1 = gtk_list_box_get_row_at_index(GTK_LIST_BOX(w), 1);
-    graphene_point_t a, b;
-    if (!r0 || !r1 || !gtk_widget_get_height(GTK_WIDGET(r1))) return G_SOURCE_REMOVE;
-    if (gtk_widget_compute_point(GTK_WIDGET(r0), w, &GRAPHENE_POINT_INIT(0, 0), &a) &&
-        gtk_widget_compute_point(GTK_WIDGET(r1), w, &GRAPHENE_POINT_INIT(0, 0), &b)) {
-        int pitch = (int)(b.y - a.y + 0.5);
-        if (pitch > 0 && pitch != L.row_h) launcher_set_pitch(pitch);
-    }
-    return G_SOURCE_REMOVE;
 }
 
 static void launcher_opened(Panel *p) {
@@ -2107,16 +2173,8 @@ static void launcher_opened(Panel *p) {
     g_signal_handlers_block_by_func(L.text, on_query, NULL);
     gtk_editable_set_text(GTK_EDITABLE(L.text), "");
     g_signal_handlers_unblock_by_func(L.text, on_query, NULL);
+    L.acc = 0;
     launcher_filter();
-    // always exactly LAUNCHER_LINES rows tall (no half rows, so the selection is never clipped at the edges)
-    if (L.apps->len) {
-        int mn, nat;
-        GtkWidget *row = ((LApp *)g_ptr_array_index(L.apps, 0))->row;
-        gtk_widget_measure(row, GTK_ORIENTATION_VERTICAL, -1, &mn, &nat, NULL, NULL);
-        if (!L.row_h && nat > 0) launcher_set_pitch(nat);
-        // the measure misses the row margin and rounding: correct it from the real layout after the first frame
-        gtk_widget_add_tick_callback(L.list, launcher_fix_pitch, NULL, NULL);
-    }
     gtk_widget_grab_focus(L.text);
 }
 
@@ -2201,10 +2259,16 @@ static Panel sessionp = {.kind = "session", .width = 260, .build = session_build
 #include "panels/control.c"
 #include "panels/osd.c"
 
+// --------------------------------------------------------------------------- Settings window (Super+I)
+#include "panels/settings/ui.c"
+#include "panels/settings/keybinds.c"
+#include "panels/settings/window.c"
+#include "panels/settings/keybinds_page.c"
+#include "panels/settings/network_page.c"
+#include "panels/settings/app.c"
+
 // --------------------------------------------------------------------------- manager
 static Panel *PANELS[] = {&calendar, &battery, &network, &wifip, &sysp, &launcherp, &sessionp, &ccp};
-static GtkWidget *catcher;
-static char *external;                  // a popup run as its own program (rofi): closed with pkill
 
 static Panel *find_panel(const char *kind) {
     for (size_t i = 0; i < G_N_ELEMENTS(PANELS); i++)
@@ -2213,18 +2277,12 @@ static Panel *find_panel(const char *kind) {
 }
 
 static void manager_close(void) {
-    if (external) {
-        const char *argv[] = {"pkill", "-x", external, NULL};
-        spawn_detached(argv);
-        g_clear_pointer(&external, g_free);
-    }
     if (current) {
         Panel *p = current;
         current = NULL;
         panel_closed(p);
         gtk_widget_set_visible(p->win, FALSE);
     }
-    if (catcher) gtk_widget_set_visible(catcher, FALSE);
 }
 
 static void manager_open(Panel *p, GdkMonitor *mon) {
@@ -2245,48 +2303,6 @@ static void manager_toggle(const char *kind) {
     if (!p) return;
     if (current == p) manager_close();
     else manager_open(p, NULL);
-}
-
-static void catcher_pressed(GtkGestureClick *g, int n, double x, double y, gpointer d) {
-    (void)g; (void)n; (void)x; (void)y; (void)d;
-    manager_close();
-}
-
-// invisible full-screen layer under a rofi popup: a click anywhere outside closes it
-static GtkWidget *make_catcher(void) {
-    GtkWidget *w = gtk_window_new();
-    gtk_window_set_application(GTK_WINDOW(w), app);
-    gtk_window_set_decorated(GTK_WINDOW(w), FALSE);
-    gtk_widget_add_css_class(w, "hyprminimal-catcher");
-    gtk_layer_init_for_window(GTK_WINDOW(w));
-    gtk_layer_set_namespace(GTK_WINDOW(w), "hyprminimal-catcher");
-    gtk_layer_set_layer(GTK_WINDOW(w), GTK_LAYER_SHELL_LAYER_TOP);
-    gtk_layer_set_exclusive_zone(GTK_WINDOW(w), -1);
-    for (int e = 0; e < GTK_LAYER_SHELL_EDGE_ENTRY_NUMBER; e++) gtk_layer_set_anchor(GTK_WINDOW(w), e, TRUE);
-    GtkWidget *b = HBOX(0, NULL);
-    gtk_widget_set_hexpand(b, TRUE);
-    gtk_widget_set_vexpand(b, TRUE);
-    gtk_window_set_child(GTK_WINDOW(w), b);
-    GtkGesture *click = gtk_gesture_click_new();
-    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
-    g_signal_connect(click, "pressed", G_CALLBACK(catcher_pressed), NULL);
-    gtk_widget_add_controller(w, GTK_EVENT_CONTROLLER(click));
-    return w;
-}
-
-// outside clicks close another program's popup too (launcher, session menu): `prog` is its process
-// name while it runs; "" = it closed by itself, just drop the catcher
-static void manager_catch(const char *prog) {
-    if (!*prog) {
-        if (external && !current && catcher) gtk_widget_set_visible(catcher, FALSE);
-        g_clear_pointer(&external, g_free);
-        return;
-    }
-    manager_close();
-    external = g_strdup(prog);
-    if (!LS) return;
-    if (!catcher) catcher = make_catcher();
-    gtk_widget_set_visible(catcher, TRUE);
 }
 
 // --------------------------------------------------------------------------- clock click strips
@@ -2509,10 +2525,10 @@ static void monitors_changed(GListModel *l, guint pos, guint rem, guint add, gpo
 }
 
 // --------------------------------------------------------------------------- Hyprland events
-// Close the swaync control center (Super+S) and the Wi-Fi list popup (Settings) when the workspace or
+// Close the control center (Super+S) and the Wi-Fi list popup (Settings) when the workspace or
 // focused monitor changes (Super+2) or a window opens: they are layer surfaces, so Hyprland leaves them
-// open on top of the new window. Reads Hyprland's event socket on the main loop (no polling); replaces
-// the separate workspace-watch program. Reconnects if the socket drops while Hyprland still runs.
+// open on top of the new window. Reads Hyprland's event socket on the main loop (no polling).
+// Reconnects if the socket drops while Hyprland still runs.
 static char *hypr_sock;
 static GDataInputStream *hypr_in;
 static GSocketConnection *hypr_conn;
@@ -2561,7 +2577,6 @@ static void hypr_watch(void) {
 // --------------------------------------------------------------------------- application
 static void act_panel(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)d; manager_toggle(g_variant_get_string(v, NULL)); }
 static void act_close(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)v; (void)d; if (current) manager_close(); }
-static void act_catch(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)d; manager_catch(g_variant_get_string(v, NULL)); }
 static void act_osd(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)d; osd_request(g_variant_get_string(v, NULL)); }
 static void act_dnd(GSimpleAction *a, GVariant *v, gpointer d) {   // on | off | toggle
     (void)a; (void)d;
@@ -2569,6 +2584,15 @@ static void act_dnd(GSimpleAction *a, GVariant *v, gpointer d) {   // on | off |
     dnd_set(!strcmp(s, "toggle") ? !NT.dnd : !strcmp(s, "on"));
 }
 static void act_quit(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)v; (void)d; g_application_quit(G_APPLICATION(app)); }
+// Settings: "toggle" (Super+I) or a page name (hyprminimal-settings --page X, the bar's error pill)
+static void act_settings(GSimpleAction *a, GVariant *v, gpointer d) {
+    (void)a; (void)d;
+    const char *s = g_variant_get_string(v, NULL);
+    if (!strcmp(s, "toggle")) settings_toggle();
+    else settings_present(s);
+}
+static void act_settings_close(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)v; (void)d; if (SW.shown) settings_hide(); }
+static void act_bar_toggled(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)v; (void)d; settings_bar_toggled(); }
 
 static void startup(GApplication *a, gpointer d) {
     (void)d;
@@ -2581,8 +2605,10 @@ static void startup(GApplication *a, gpointer d) {
     launcher_init();
     static const GActionEntry acts[] = {
         {"panel", act_panel, "s", NULL, NULL, {0}}, {"panel-close", act_close, NULL, NULL, NULL, {0}},
-        {"catch", act_catch, "s", NULL, NULL, {0}}, {"quit", act_quit, NULL, NULL, NULL, {0}},
+        {"quit", act_quit, NULL, NULL, NULL, {0}},
         {"osd", act_osd, "s", NULL, NULL, {0}}, {"dnd", act_dnd, "s", NULL, NULL, {0}},
+        {"settings", act_settings, "s", NULL, NULL, {0}}, {"settings-close", act_settings_close, NULL, NULL, NULL, {0}},
+        {"bar-toggled", act_bar_toggled, NULL, NULL, NULL, {0}},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(a), acts, G_N_ELEMENTS(acts), NULL);
     for (size_t i = 0; i < G_N_ELEMENTS(PANELS); i++) panel_create(PANELS[i]);   // first click is instant
@@ -2598,13 +2624,16 @@ static void startup(GApplication *a, gpointer d) {
     g_object_unref(gen);
 }
 
-// `panels` starts it; `panels --panel KIND` toggles a popup (in the running copy, over D-Bus)
+// `panels` starts it; `panels --panel KIND` toggles a popup, `--settings PAGE` opens Settings (in the running
+// copy, over D-Bus)
 static int command_line(GApplication *a, GApplicationCommandLine *cl, gpointer d) {
     (void)a; (void)d;
     int argc;
     char **argv = g_application_command_line_get_arguments(cl, &argc);
-    for (int i = 1; i + 1 < argc; i++)
+    for (int i = 1; i + 1 < argc; i++) {
         if (!strcmp(argv[i], "--panel")) manager_toggle(argv[i + 1]);
+        if (!strcmp(argv[i], "--settings")) settings_present(argv[i + 1]);
+    }
     g_strfreev(argv);
     return 0;
 }
@@ -2619,6 +2648,8 @@ int main(int argc, char **argv) {
         g_free(exe); g_free(a); g_free(b);
     }
     GEN = g_build_filename(REPO, ".generated", NULL);
+    // hyprminimal-settings --apply / --toggle-bar: render .generated/* from settings.json, no window
+    if (argc == 2 && (!strcmp(argv[1], "--apply") || !strcmp(argv[1], "--toggle-bar"))) return settings_cli(argv[1]);
     // software rendering: these popups are small and mostly still, and the GPU renderers map the whole
     // Vulkan/GL driver stack (~165 MB RSS vs ~75 MB). GSK_RENDERER in the environment still wins.
     OWN_GSK = !getenv("GSK_RENDERER");   // then apps we launch must not inherit ours

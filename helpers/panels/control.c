@@ -1,4 +1,4 @@
-// Included by helpers/panels.c. Control center (Super+S, the bell, the media capsule). Replaces swaync's.
+// Included by helpers/panels.c. Control center (Super+S, the bell, the media capsule).
 // Top to bottom: [Wi-Fi | ›] [System], toggles (Bluetooth, Caffeine, Night Light, Silent), Lock / Reboot /
 // Shut Down, the current player (playerctld), the notification header and list (opens collapsed: the
 // newest card; the header expands it). Keys: 1-7 the tiles in reading order, K play/pause, C clear all.

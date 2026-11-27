@@ -3,7 +3,8 @@
 Hyprland theme for endless typing and coding.
 No wallpaper, no blur, no animations. Official pacman packages only.
 
-Surprise: the whole desktop runs on just 4 programs (hyprland, waybar, rofi and hyprlock). Popups, notifications and OSD are a small built-in C helper.
+Running: Hyprland, waybar and one small C program (`panels`) for popups, notifications, OSD, launcher and
+session menu. hyprlock starts only when you lock the screen.
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/748b03a2-a375-4b7c-89e7-4a4d3684be53" />
 
@@ -50,8 +51,7 @@ The ones to learn first. **All shortcuts: [KEYBINDINGS.md](KEYBINDINGS.md)**, or
 |---|---|---|
 | Bar | waybar | `waybar/` |
 | Popups, control center, notifications, OSD, launcher, session menu | C helper (GTK4) | `helpers/panels.c`, `helpers/panels/`, `settings/panels.css` |
-| Launcher, session menu fallback | rofi | `rofi/` |
 | Lock | hyprlock | `hyprlock/` |
-| Settings | hyprminimal-settings | `settings/`, `settings.json` |
+| Settings | C helper (GTK4), part of the popup program | `helpers/panels/settings/`, `settings/panels.css`, `settings.json` |
 
 Keybind edits are backed up to `~/.config/hypr/.pre-hyprminimal-backup/`.

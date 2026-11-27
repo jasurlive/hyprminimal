@@ -5,7 +5,7 @@ window.hyprminimal-panel { background: transparent; }
 window.hyprminimal-background { background: #222436; }
 .bg-word { font-size: 30px; font-weight: 300; letter-spacing: 8px; color: #a9b1d6; opacity: 0.45; }
 .bg-logo + .bg-word { margin-top: 18px; }   /* the gap only under the logo */
-window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0, 0, 0.01); }   /* needs real pixels or no buffer is attached */
+window.hyprminimal-clickzone { background: rgba(0, 0, 0, 0.01); }   /* needs real pixels or no buffer is attached */
 .panel {
   background: rgba(31, 35, 53, 1); border: 1px solid #4b517a; padding: 18px 20px;
   color: #c0caf5;
@@ -162,3 +162,113 @@ window.hyprminimal-notifications, window.hyprminimal-osd { background: transpare
 .hm-osd levelbar block.filled { background: #7a88cf; }
 .hm-osd levelbar block.empty { background: transparent; }
 window.hyprminimal-osd.muted .osd-icon, window.hyprminimal-osd.muted levelbar { opacity: 0.5; }
+
+/* ---------- Settings window (Super+I, helpers/panels/settings/) ----------
+   Plain GTK4: everything it shows is painted here, so it follows the theme like the popups.
+   Big rows and controls: every row is a comfortable click target. */
+window.hm-settings { background: #1f2335; color: #c0caf5; font-size: 15px; }
+window.hm-settings .hm-sidebar { background: #1a1e2e; padding: 22px 12px 12px 12px; border-right: 1px solid #343a5c; }
+window.hm-settings .hm-title { font-size: 26px; font-weight: 800; color: #9aa5e0; margin: 2px 12px 10px 12px; }
+window.hm-settings list.hm-nav { background: transparent; }
+window.hm-settings list.hm-nav > row { padding: 13px 16px; margin: 2px 0; border-radius: 8px; color: #a9b1d6; font-size: 17px; }
+window.hm-settings list.hm-nav > row image { color: #7a88cf; -gtk-icon-size: 20px; margin-right: 4px; }
+window.hm-settings list.hm-nav > row:hover { background: rgba(122, 136, 207, 0.15); color: #c0caf5; }
+window.hm-settings list.hm-nav > row:selected { background: #7a88cf; color: #1f2335; font-weight: 700; }
+window.hm-settings list.hm-nav > row:selected image { color: #1f2335; }
+window.hm-settings .hm-header { padding: 18px 24px; border-bottom: 1px solid #343a5c; }
+window.hm-settings .hm-page-title { font-weight: 800; font-size: 17px; }
+window.hm-settings .hm-page { margin: 24px 44px 40px 44px; }
+window.hm-settings .hm-group-title { font-weight: 800; font-size: 15px; color: #c0caf5; }
+window.hm-settings .hm-group-desc { color: #a9b1d6; font-size: 13px; }
+window.hm-settings list.hm-list { background: #262a40; border: 1px solid #343a5c; border-radius: 10px; }
+window.hm-settings list.hm-list > row.hm-row { padding: 0; border-bottom: 1px solid #343a5c; }
+window.hm-settings list.hm-list > row.hm-row:last-child { border-bottom: none; }
+window.hm-settings .hm-row-box { padding: 11px 18px; min-height: 32px; }
+window.hm-settings list.hm-list > row.hm-row:hover { background: transparent; }
+window.hm-settings list.hm-list > row.hm-row:hover .hm-row-box, window.hm-settings list.hm-list > row.hm-button-row:hover {
+  background: rgba(122, 136, 207, 0.10); }
+window.hm-settings list.hm-list > row.hm-row:first-child:hover .hm-row-box { border-radius: 10px 10px 0 0; }
+window.hm-settings list.hm-list > row.hm-row:last-child:hover .hm-row-box { border-radius: 0 0 10px 10px; }
+window.hm-settings list.hm-list > row.hm-entry-row:hover .hm-row-box { background: transparent; }
+window.hm-settings .hm-row-title { color: #c0caf5; font-size: 15px; }
+window.hm-settings .hm-row-sub { color: #a9b1d6; font-size: 13px; }
+window.hm-settings .hm-entry-title { color: #a9b1d6; font-size: 12px; margin-bottom: 3px; }
+window.hm-settings row.dim .hm-row-title, window.hm-settings .dim { color: #737aa2; }
+window.hm-settings row.hm-button-row { padding: 11px 18px; font-weight: 700; color: #9aa5e0; }
+window.hm-settings row.hm-button-row.destructive { color: #f7768e; }
+window.hm-settings row.hm-button-row.suggested { background: #7a88cf; color: #1f2335; border-radius: 10px; }
+window.hm-settings list.hm-sublist { background: #1f2335; border-top: 1px solid #343a5c; border-radius: 0 0 10px 10px; }
+window.hm-settings list.hm-sublist > row.hm-row .hm-row-box { padding-left: 32px; }
+window.hm-settings .hm-arrow { color: #a9b1d6; -gtk-icon-size: 16px; }
+window.hm-settings row.hm-expander.open .hm-arrow { -gtk-icon-transform: rotate(180deg); }
+window.hm-settings row.property .hm-row-sub { color: #c0caf5; font-weight: 600; }
+window.hm-settings image { -gtk-icon-size: 16px; }
+/* fields and controls */
+window.hm-settings entry, window.hm-settings spinbutton, window.hm-settings passwordentry {
+  background: #2c314a; color: #c0caf5; border: 1px solid #4b517a; border-radius: 6px; min-height: 34px; box-shadow: none; font-size: 15px; }
+window.hm-settings entry:focus-within, window.hm-settings spinbutton:focus-within, window.hm-settings passwordentry:focus-within {
+  border-color: #7a88cf; outline: none; }
+window.hm-settings entry > text, window.hm-settings passwordentry > text, window.hm-settings spinbutton > text { padding: 0 10px; }
+window.hm-settings text placeholder, window.hm-settings entry image, window.hm-settings passwordentry image { color: #737aa2; }
+window.hm-settings text selection { background: #7a88cf; color: #1f2335; }
+window.hm-settings .hm-sidebar entry { margin: 0 4px 8px 4px; min-height: 38px; font-size: 16px; }
+window.hm-settings spinbutton > button { background: transparent; border: none; color: #a9b1d6; box-shadow: none; min-width: 34px; }
+window.hm-settings spinbutton > button:hover { color: #c0caf5; background: rgba(122, 136, 207, 0.18); }
+window.hm-settings button {
+  background: #2c314a; color: #c0caf5; border: 1px solid #4b517a; border-radius: 8px; box-shadow: none;
+  padding: 5px 14px; min-height: 22px; font-size: 15px; }
+window.hm-settings button:hover { background: rgba(122, 136, 207, 0.25); }
+window.hm-settings button.flat { background: transparent; border-color: transparent; padding: 5px 8px; min-width: 22px; }
+window.hm-settings button.flat:hover { background: rgba(122, 136, 207, 0.18); }
+window.hm-settings button.suggested { background: #7a88cf; color: #1f2335; border-color: #7a88cf; font-weight: 700; }
+window.hm-settings button.suggested:disabled { opacity: 0.45; }
+window.hm-settings button.destructive { background: transparent; color: #f7768e; border-color: #f7768e; }
+window.hm-settings button.destructive:hover { background: #f7768e; color: #1f2335; }
+window.hm-settings button.pill { border-radius: 999px; padding: 5px 18px; font-weight: 600; }
+window.hm-settings button.hm-apply { color: #7a88cf; }
+window.hm-settings button.recording { background: #d7729f; color: #1f2335; }
+window.hm-settings button.hm-scan:disabled { color: #7a88cf; opacity: 1; font-weight: 800; }
+window.hm-settings switch { background: #2c314a; border: 1px solid #4b517a; border-radius: 999px; min-width: 46px; min-height: 24px; }
+window.hm-settings switch:checked { background: #7a88cf; border-color: #7a88cf; }
+window.hm-settings switch slider { background: #c0caf5; min-width: 20px; min-height: 20px; border-radius: 999px; margin: 2px; }
+window.hm-settings checkbutton check, window.hm-settings checkbutton radio {
+  background: #2c314a; border: 1px solid #4b517a; color: #1f2335; min-width: 18px; min-height: 18px; }
+window.hm-settings checkbutton check:checked, window.hm-settings checkbutton radio:checked { background: #7a88cf; border-color: #7a88cf; }
+window.hm-settings dropdown > button { min-width: 150px; }
+window.hm-settings popover > contents { background: #24283b; color: #c0caf5; border: 1px solid #4b517a; border-radius: 8px; padding: 6px; }
+window.hm-settings popover listview { background: transparent; }
+window.hm-settings popover listview > row { padding: 7px 10px; border-radius: 6px; }
+window.hm-settings popover listview > row:hover, window.hm-settings popover listview > row:selected { background: rgba(122, 136, 207, 0.2); }
+window.hm-settings scale trough { background: #2c314a; min-height: 8px; border-radius: 999px; }
+window.hm-settings scale highlight { background: #7a88cf; border-radius: 999px; }
+window.hm-settings scale slider { background: #c0caf5; border: none; min-width: 18px; min-height: 18px; border-radius: 999px; }
+window.hm-settings scale value { color: #a9b1d6; min-width: 72px; }
+/* scrollbars: a slim rounded pill clear of the edge, wider and accent-coloured under the pointer */
+window.hm-settings scrollbar, window.hm-settings scrollbar trough { background: transparent; border: none; box-shadow: none; }
+window.hm-settings scrollbar.vertical > range > trough { margin: 6px 4px; }
+window.hm-settings scrollbar slider {
+  min-width: 6px; min-height: 48px; border: none; border-radius: 999px; background: rgba(169, 177, 214, 0.28); }
+window.hm-settings scrollbar:hover slider { min-width: 9px; background: rgba(169, 177, 214, 0.45); }
+window.hm-settings scrollbar slider:active { background: #7a88cf; }
+window.hm-settings scrollbar.overlay-indicator:not(.hovering) slider { min-width: 4px; background: rgba(169, 177, 214, 0.35); }
+window.hm-settings .hm-swatches { border-radius: 8px; border: 1px solid #4b517a; }
+/* banners, toast, dialogs */
+window.hm-settings .hm-banner { background: #2c314a; padding: 12px 24px; }
+window.hm-settings .hm-banner.error { background: rgba(247, 118, 142, 0.22); color: #f7768e; }
+window.hm-settings .hm-banner.error button { background: #f7768e; color: #1f2335; border-color: #f7768e; }
+window.hm-settings .hm-toast { background: #24283b; color: #c0caf5; border: 1px solid #4b517a; border-radius: 10px;
+  padding: 12px 22px; margin-bottom: 28px; }
+window.hm-settings .hm-scrim { background: rgba(24, 27, 42, 0.6); }
+window.hm-settings .hm-dialog { background: #24283b; border: 1px solid #4b517a; border-radius: 12px; padding: 16px 22px 22px 22px; }
+window.hm-settings .hm-dialog-title { font-weight: 800; font-size: 16px; }
+window.hm-settings .hm-subhead { padding: 10px 24px; border-bottom: 1px solid #343a5c; }
+window.hm-settings .hm-subhead-title { font-weight: 700; font-size: 16px; }
+/* keybinds */
+window.hm-settings .hm-kb-top { margin: 18px 44px 6px 44px; }
+window.hm-settings .hm-kb-hint { color: #a9b1d6; font-size: 12px; margin: 0 46px; }
+window.hm-settings .section-label { color: #d7729f; font-weight: 800; font-size: 12px; letter-spacing: 1px; margin-top: 14px; }
+window.hm-settings .keycap { background: #2c314a; color: #c0caf5; border: 1px solid #4b517a; border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 8px; font-weight: 700; font-size: 13px; }
+window.hm-settings .keycap.plus { background: none; border: none; color: #4b517a; padding: 0 2px; }
+window.hm-settings .conflict { color: #f7768e; font-weight: 700; }
+window.hm-settings .hm-empty { color: #a9b1d6; margin: 40px; font-size: 15px; }

@@ -1,10 +1,10 @@
 // Included by helpers/panels.c. Notification daemon (org.freedesktop.Notifications): popups in a corner,
-// a history the control center lists, and Do not disturb. Replaces swaync.
+// a history the control center lists, and Do not disturb.
 //   popups: one layer window, a column of cards; click = the app's default action + dismiss. A 3px bar
 //           runs out with the timeout (Settings → Notifications: position, seconds). Critical: no timeout.
 //   history: newest first, until dismissed ("Clear all", a click, the app closing it). Transient: popup only.
 //   bar bell: $XDG_RUNTIME_DIR/hyprminimal/notif.json + SIGRTMIN+8 to waybar, only when its icon changes.
-//   DND: hides popups (critical ones too, like swaync); kept across restarts in $XDG_RUNTIME_DIR/hyprminimal/dnd.
+//   DND: hides popups (critical ones too); kept across restarts in $XDG_RUNTIME_DIR/hyprminimal/dnd.
 #define NOTIF_KEEP 50       // history cap
 #define BAR_SIGNAL 8        // waybar custom/notification "signal"
 
@@ -324,7 +324,7 @@ static GdkTexture *hint_image(GVariant *v) {   // (iiibiiay): width, height, row
     GdkTexture *t = NULL;
     gsize len;
     const guchar *px = g_variant_get_fixed_array(data, &len, 1);
-    if (w > 0 && h > 0 && bits == 8 && (ch == 3 || ch == 4) && len >= (gsize)stride * (h - 1) + (gsize)w * ch) {
+    if (w > 0 && h > 0 && bits == 8 && (ch == 3 || ch == 4) && stride >= w * ch && len >= (gsize)stride * (h - 1) + (gsize)w * ch) {
         GBytes *b = g_bytes_new(px, len);
         t = gdk_memory_texture_new(w, h, ch == 4 ? GDK_MEMORY_R8G8B8A8 : GDK_MEMORY_R8G8B8, b, stride);
         g_bytes_unref(b);
@@ -382,9 +382,10 @@ static guint do_notify(GVariant *p) {
         g_ptr_array_remove_index(NT.list, NT.list->len - 1);
         notif_free(old);
     }
-    popup_show(n);
+    guint id = n->id;
+    popup_show(n);          // may free n (transient while Do not disturb is on)
     notifs_changed();
-    return n->id;
+    return id;
 }
 
 static void on_method(GDBusConnection *c, const char *sender, const char *path, const char *iface, const char *method,
@@ -456,10 +457,10 @@ static void dnd_set(gboolean on) {
     if (on) g_file_set_contents(f, "on\n", -1, NULL);
     else g_unlink(f);
     g_free(f);
-    if (on) {   // what is on screen goes away now
-        for (guint i = 0; i < NT.list->len; i++) {
+    if (on) {   // what is on screen goes away now, critical too; backwards: a transient one leaves the list
+        for (guint i = NT.list->len; i-- > 0;) {
             Notif *n = g_ptr_array_index(NT.list, i);
-            if (n->popup && n->urgency != 2) { if (n->timer) g_source_remove(n->timer); n->timer = 0; popup_expire(GUINT_TO_POINTER(n->id)); }
+            if (n->popup) { if (n->timer) g_source_remove(n->timer); n->timer = 0; popup_expire(GUINT_TO_POINTER(n->id)); }
         }
     }
     notifs_changed();

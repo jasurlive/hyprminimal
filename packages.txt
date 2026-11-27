@@ -4,7 +4,6 @@
 # Desktop UI
 hyprland                  # The compositor.
 waybar                    # Status bar: workspace, clock, CPU, RAM, battery, network, volume.
-rofi                      # Application launcher, search menu, and custom application menus.
 
 # Hyprland session management
 hyprlock                  # Lock screen when manually locking the session.
@@ -13,11 +12,9 @@ cage                      # Tiny kiosk compositor the login screen runs in.
 json-c                    # greetd messages in greeter/greeter.c (built at install).
 hyprsunset                # Night light: reduces blue light by adjusting display color temperature.
 
-# Settings app (Python + GTK4); popups, control center, notifications and OSD are C (helpers/panels.c)
-python                    # Settings app, launcher.
-python-gobject            # GTK bindings for Python.
-gtk4                      # Toolkit (Settings, and headers for helpers/panels.c).
-libadwaita                # Settings window widgets.
+# Settings, popups, control center, notifications, OSD and launcher: one C program (helpers/panels.c)
+gtk4                      # Toolkit (and headers for helpers/panels.c).
+json-glib                 # settings.json, waybar config, Hyprland IPC replies (helpers/panels/settings/).
 gtk4-layer-shell          # Popups, notifications and OSD attached to the screen edge.
 gcc                       # Builds the small C helpers (helpers/).
 pkgconf                   # Finds gtk4 flags for helpers/panels.c.
@@ -25,7 +22,6 @@ pkgconf                   # Finds gtk4 flags for helpers/panels.c.
 # Media and system utilities
 playerctl                 # Control media players: play, pause, next, previous, volume.
 jq                        # Parse and manipulate JSON from scripts and command output.
-brightnessctl             # Control laptop screen backlight brightness.
 libnotify                 # Notification library used by applications and notify-send.
 pavucontrol               # GUI audio mixer for selecting and adjusting audio devices.
 wireplumber               # wpctl: volume and mute.
@@ -37,7 +33,6 @@ networkmanager            # nmcli: Wi-Fi panel and control center.
 dnsmasq                   # DHCP/DNS for the Wi-Fi hotspot (NetworkManager shared mode).
 iw                        # Hotspot: second (access-point) interface so Wi-Fi stays connected.
 hostapd                   # Hotspot next to the Wi-Fi connection (scripts/hotspot-iface).
-network-manager-applet    # System tray interface for NetworkManager and Wi-Fi connections.
 bluez-utils               # bluetoothctl: Bluetooth toggle.
 blueman                   # Bluetooth manager for pairing and managing Bluetooth devices.
 

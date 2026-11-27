@@ -4,14 +4,15 @@
 #   hyprminimal stop           stop hyprminimal
 #   hyprminimal restart        restart hyprminimal (after editing configs)
 #   hyprminimal respawn NAME   restart one component (waybar panels)
-#   hyprminimal status         show what is running, its RAM, and any missing packages
+#   hyprminimal status         show what is running, its memory (PSS), and any missing packages
+#   hyprminimal build          build the C helpers (helpers/*.c) that are older than their source
 set -uo pipefail
 # never pass a GTK4 LD_PRELOAD on to waybar (GTK3): it crashes at start
 unset LD_PRELOAD
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 RUN="${XDG_RUNTIME_DIR:-/tmp}/hyprminimal"
-GEN="$DIR/.generated"   # rendered from settings.json by hyprminimal-settings --apply
+GEN="$DIR/.generated"   # rendered from settings.json by hyprminimal-settings --apply (helpers/panels.c)
 GOOD="$GEN/good"        # last config each component ran on without crashing
 ERR="$RUN/errors"       # ERR/NAME: why a component failed; the bar shows a red pill, Settings a red banner
 export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
@@ -231,16 +232,16 @@ stop_components() {
 
 start_components() {
   local err stamp="$GEN/.applied"
-  # re-render only when settings.json or a repo config changed since the last render: starting Python +
-  # GTK for --apply costs ~0.5 s at every login. HYPRMINIMAL_FORCE_APPLY=1 renders anyway.
+  build_helpers   # first: the render below is helpers/panels.c (panels --apply)
+  # re-render only when settings.json or a repo config changed since the last render.
+  # HYPRMINIMAL_FORCE_APPLY=1 renders anyway.
   if [[ ${HYPRMINIMAL_FORCE_APPLY:-} || ! -f $stamp ]] \
      || [[ $(find "$DIR" \( -path "$GEN" -o -path "$DIR/.git" \) -prune -o -newer "$stamp" -print -quit 2>/dev/null) ]]; then
-    if err=$("$DIR/bin/hyprminimal-settings" --apply 2>&1); then touch "$stamp"
+    if err=$("$GEN/bin/panels" --apply 2>&1); then touch "$stamp"
     else RENDER_ERR=${err##*$'\n'}; rm -f "$stamp"; fi   # reported once panels is up
   fi
   local nl temp
   read -r nl temp < "$GEN/nightlight" 2>/dev/null
-  build_helpers
   # helpers/panels.c is the notification daemon: if swaync is still installed, keep its user unit masked so
   # D-Bus can't start it whenever a notification arrives while panels restarts (undo: systemctl --user unmask swaync.service)
   [[ -e /usr/lib/systemd/user/swaync.service && $(systemctl --user is-enabled swaync.service 2>/dev/null) != masked ]] \
@@ -251,11 +252,6 @@ start_components() {
   # one "current player" for bar, panel and media keys (several Firefox tabs = several players)
   pgrep -x playerctld >/dev/null || spawn playerctld playerctld daemon
   [[ ${nl:-} == on ]] && spawn hyprsunset hyprsunset -t "${temp:-4000}"
-  # Settings → General → Keep Settings ready (.generated/preload, off by default): start the settings app
-  # hidden so Super+I / Super+H open instantly (~110 MB resident). Off: cold start (~0.5 s) on first use.
-  local preload=off; read -r preload < "$GEN/preload" 2>/dev/null
-  [[ $preload != on ]] || pgrep -f '^python3 -I [^ ]*/settings/hyprminimal_settings\.py' >/dev/null \
-    || spawn settings "$DIR/bin/hyprminimal-settings" --preload
   if [[ ${RENDER_ERR:-} ]]; then set_error settings "Settings could not be applied: $RENDER_ERR"; else clear_error settings; fi
   [[ ${RENDER_ERR:-} ]] && notify critical "hyprminimal: settings could not be applied" \
     "$RENDER_ERR
@@ -294,17 +290,10 @@ case ${1:-} in
     rm -f "$RUN/active"
     stop_components
     panels_quit
-    gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-      --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
     echo "hyprminimal stopped"
     ;;
   restart)
     [[ -e $RUN/active ]] || { echo "hyprminimal is not active"; exit 1; }
-    # the settings process caches its code: restart it too so edits always take effect
-    gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-      --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
-    # wait until it's really gone (up to 3 s), or start_components sees it and doesn't start a new one
-    for _ in $(seq 30); do pgrep -f '^python3 -I [^ ]*/settings/hyprminimal_settings\.py' >/dev/null || break; sleep 0.1; done
     panels_quit                    # rebuilt from helpers/panels.c if it changed, then started again
     rm -rf "$RUN/fallback" "$ERR"
     stop_components; start_components; echo "hyprminimal restarted"
@@ -316,20 +305,26 @@ case ${1:-} in
     with_lock "$c" restart_one "$c"
     ;;
   watchdog) watchdog ;;
+  build)
+    mkdir -p "$RUN"; build_helpers
+    [[ -x $GEN/bin/panels && ! $DIR/helpers/panels.c -nt $GEN/bin/panels ]] \
+      || { echo "building helpers/panels.c failed: $RUN/helpers-build.log" >&2; exit 1; }
+    ;;
   status)
     [[ -e $RUN/active ]] && echo "hyprminimal: active" || echo "hyprminimal: stopped"
-    # every process hyprminimal runs, with its resident memory (RSS, shared libraries counted in each)
+    # every process hyprminimal runs, with its PSS (/proc/PID/smaps_rollup): shared pages such as the GTK
+    # libraries are split between the processes using them, so the total is honest (RSS counts them in each)
     rows=(
-      "waybar|-x waybar" "panels|-f ^$GEN/bin/panels" "settings|-f ^python3 -I [^ ]*/settings/hyprminimal_settings\.py"
+      "waybar|-x waybar" "panels|-f ^$GEN/bin/panels"
       "playerctld|-x playerctld" "hyprsunset|-x hyprsunset" "watchdog|-f $DIR/bin/hyprminimal watchdog"
       "media|-f ^$GEN/bin/media" "waitpids|-f ^$GEN/bin/waitpids"
     )
     total=0 procs=0
-    printf '  %-15s %-8s %8s\n' component state RAM
+    printf '  %-15s %-8s %8s\n' component state PSS
     for r in "${rows[@]}"; do
       c=${r%%|*}; read -r how pat <<<"${r#*|}"
       mapfile -t pids < <(pgrep "$how" "$pat")
-      kb=0; for p in "${pids[@]}"; do v=$(ps -o rss= -p "$p" 2>/dev/null) && kb=$(( kb + v )); done
+      kb=0; for p in "${pids[@]}"; do v=$(awk '/^Pss:/{print $2}' "/proc/$p/smaps_rollup" 2>/dev/null) && kb=$(( kb + ${v:-0} )); done
       if (( ${#pids[@]} )); then state=running; mem=$(awk -v k="$kb" 'BEGIN{printf "%.1f MB", k/1024}')
       else state=-; mem=; fi
       (( total += kb, procs += ${#pids[@]} ))
@@ -342,5 +337,5 @@ case ${1:-} in
     (( ${#miss[@]} )) && printf 'missing packages: %s\n  sudo pacman -S --needed %s\n' "${miss[*]}" "${miss[*]}"
     exit 0
     ;;
-  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

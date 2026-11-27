@@ -4,7 +4,6 @@ hl.window_rule({ match = { class = ".*" }, suppress_event = "maximize" })
 -- Float rules
 hl.window_rule({ match = { class = "^org\\.pulseaudio\\.pavucontrol$" }, float = true, size = "1100 620" })
 hl.window_rule({ match = { class = "^blueman-manager$" },                 float = true, size = "700 450" })
-hl.window_rule({ match = { class = "^nm-connection-editor$" },            float = true })
 hl.window_rule({ match = { class = "^nwg-displays$" },                    float = true })
 hl.window_rule({ match = { class = "^hyprpolkitagent$" },                 float = true })
 hl.window_rule({ match = { title = "^File Operation Progress$" },         float = true, size = "600 50" })

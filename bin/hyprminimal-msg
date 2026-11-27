@@ -8,13 +8,10 @@ panels_call() { gdbus call --session --dest dev.hyprminimal.Panels --object-path
                   --method org.gtk.Actions.Activate "$1" "$2" "{}" >/dev/null 2>&1; }
 
 case $cmd in
-  launcher)       # resident popup in helpers/panels.c (instant); rofi when that isn't running:
-                  # C helper, bash fallback without gcc
-                  # panels first: pkill scans every process (50-100 ms), only the fallback needs it
-                  panels_call panel "[<'launcher'>]" && exit 0
-                  pkill -x rofi && exit
-                  [[ -x $DIR/.generated/bin/launcher ]] && exec "$DIR/.generated/bin/launcher"
-                  exec "$DIR/scripts/launcher.sh" ;;
+  launcher|session) # Super+R, the session menu: resident popups in helpers/panels.c (instant);
+                  # not running (yet): start it, it opens the popup itself
+                  panels_call panel "[<'$cmd'>]" && exit 0
+                  exec setsid -f "$DIR/.generated/bin/panels" --panel "$cmd" >/dev/null 2>&1 </dev/null ;;
   lock)           # hyprlock can crash on resume (AMD/Mesa abort when the screen comes back), which leaves
                   # Hyprland's red "lockscreen app died" page. Hyprland lets a new locker take over the
                   # lock (misc.allow_session_lock_restore), so restart hyprlock until it exits 0 (= unlocked).
@@ -41,14 +38,7 @@ case $cmd in
   panel-close)    # close the open bar popup (sent by Hyprland on a click outside it, see hypr/layerrules.lua)
                   panels_call panel-close "[]" ;;
   settings-close) # hide the Settings window (Hyprland, on a click outside it: hypr/layerrules.lua)
-                  exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-                    --method org.gtk.Actions.Activate close "[]" "{}" >/dev/null 2>&1 ;;
-  catch)          # $1 = process name of a popup that should close on a click outside it ("" = closed)
-                  [[ ${1:-} =~ ^[a-z-]*$ ]] || exit 2
-                  panels_call catch "[<'${1:-}'>]" ;;
-  session)        panels_call panel "[<'session'>]" && exit 0   # helpers/panels.c; rofi when it isn't running
-                  pkill -x rofi && exit
-                  exec "$DIR/scripts/session.sh" ;;
+                  panels_call settings-close "[]" ;;
   media)
     case ${1:-toggle} in toggle) exec playerctl play-pause ;; *) exec playerctl "$1" ;; esac ;;
   volume)         # $1 = +N | -N | mute: changed and shown by the OSD in helpers/panels.c (wpctl when it isn't running)
@@ -75,9 +65,8 @@ case $cmd in
   bluetooth-state) systemctl is-active -q bluetooth && timeout 1 bluetoothctl show 2>/dev/null | grep -q "Powered: yes" \
                      && echo true || echo false ;;
   nightlight-state) pgrep -x hyprsunset >/dev/null && echo true || echo false ;;
-  settings)       # Super+I: toggle the Settings window (start it when it isn't running)
-                  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-                    --method org.gtk.Actions.Activate toggle "[]" "{}" >/dev/null 2>&1 && exit 0
+  settings)       # Super+I: toggle the Settings window (helpers/panels.c; started when it isn't running)
+                  panels_call settings "[<'toggle'>]" && exit 0
                   exec "$DIR/bin/hyprminimal-settings" ;;
   errors)         # bar error pill: open Settings on the page of the first failed part
                   declare -A P=([waybar]=bar [panels]=notifications [settings]=general)
@@ -87,8 +76,7 @@ case $cmd in
   bar)            # Super+M: show/hide the bar now (waybar SIGUSR1, no restart; pidof ~10 ms vs pkill ~60),
                   # then save it (Settings → Bar → Hide bar) so the bar starts that way next time
                   pid=$(pidof -s waybar) && kill -USR1 "$pid"
-                  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-                    --method org.gtk.Actions.Activate bar-toggled "[]" "{}" >/dev/null 2>&1 && exit 0
+                  panels_call bar-toggled "[]" && exit 0
                   exec "$DIR/bin/hyprminimal-settings" --toggle-bar ;;
   cheatsheet)     exec "$DIR/bin/hyprminimal-settings" --page keybinds ;;
 esac
