@@ -1,7 +1,9 @@
 # hyprminimal
 
 Hyprland theme for endless typing and coding.
-No wallpaper, no blur, no animations. Official Arch packages only.
+No wallpaper, no blur, no animations. Official pacman packages only.
+
+Surprise: the whole desktop runs on just 4 programs (hyprland, waybar, rofi and hyprlock). Popups, notifications and OSD are a small built-in C helper.
 
 <img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/748b03a2-a375-4b7c-89e7-4a4d3684be53" />
 
