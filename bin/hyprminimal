@@ -3,10 +3,10 @@
 #   hyprminimal start          start hyprminimal (stops a running copy first)
 #   hyprminimal stop           stop hyprminimal
 #   hyprminimal restart        restart hyprminimal (after editing configs)
-#   hyprminimal respawn NAME   restart one component (waybar swaync swayosd-server)
-#   hyprminimal status         show what is running and any missing packages
+#   hyprminimal respawn NAME   restart one component (waybar panels)
+#   hyprminimal status         show what is running, its RAM, and any missing packages
 set -uo pipefail
-# never pass a GTK4 preload (Settings runs with libgtk4-layer-shell) on to waybar (GTK3): it crashes at start
+# never pass a GTK4 LD_PRELOAD on to waybar (GTK3): it crashes at start
 unset LD_PRELOAD
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -16,13 +16,13 @@ GOOD="$GEN/good"        # last config each component ran on without crashing
 ERR="$RUN/errors"       # ERR/NAME: why a component failed; the bar shows a red pill, Settings a red banner
 export PATH="$DIR/bin:$PATH" HYPRMINIMAL_DIR="$DIR"
 
-COMPONENTS=(waybar swaync swayosd-server)
-declare -A LOG=([waybar]=waybar [swaync]=swaync [swayosd-server]=swayosd)
-declare -A NAME=([waybar]="Bar" [swaync]="Notification centre" [swayosd-server]="Volume/brightness OSD")
-declare -A CONF=([waybar]="waybar.json waybar.css" [swaync]="swaync.json swaync.css")
+# panels: helpers/panels.c, everything on screen but the bar: popups, control center, notifications, OSD
+COMPONENTS=(waybar panels)
+declare -A LOG=([waybar]=waybar [panels]=panels)
+declare -A NAME=([waybar]="Bar" [panels]="Popups, notifications and OSD")
+declare -A CONF=([waybar]="waybar.json waybar.css")
 declare -A FIX=([waybar]="Check Settings → Bar, or waybar/config.jsonc and waybar/style.css."
-                [swaync]="Check swaync/config.json and swaync/style.css."
-                [swayosd-server]="Check swayosd/config.toml and swayosd/style.css.")
+                [panels]="Check helpers/panels.c and helpers/panels/ (build log: $RUN/helpers-build.log).")
 
 # previous log kept as NAME.log.1 so a crash reason survives the restart
 spawn() { local name=$1; shift; [[ -s $RUN/$name.log ]] && mv -f "$RUN/$name.log" "$RUN/$name.log.1"
@@ -30,9 +30,10 @@ spawn() { local name=$1; shift; [[ -s $RUN/$name.log ]] && mv -f "$RUN/$name.log
 # started programs must not inherit the respawn lock (see with_lock), or it is never released
 unlock_fd() { [[ ${LOCKFD:-} ]] && eval "exec ${LOCKFD}>&-"; return 0; }
 
-# desktop notification, only through hyprminimal's own swaync (never D-Bus-activate the stock one)
+# desktop notification, only when a notification daemon (normally ours, helpers/panels.c) is running:
+# never D-Bus-activate another one
 notify() {  # urgency title body
-  busctl --user list 2>/dev/null | grep -q "^org.erikreider.swaync.cc " || { echo "hyprminimal: $2: $3" >&2; return; }
+  busctl --user list 2>/dev/null | grep -q "^org.freedesktop.Notifications " || { echo "hyprminimal: $2: $3" >&2; return; }
   notify-send -a hyprminimal -i dialog-warning -u "$1" "$2" "$3" 2>/dev/null
 }
 
@@ -64,44 +65,35 @@ start_one() {   # start a single component (not running already)
     waybar)
       spawn waybar waybar -c "$(cfg waybar waybar.json)" -s "$(cfg waybar waybar.css)"
       refullscreen_after_bar ;;
-    swaync)
-      # GTK4 CSS has no cursor/tooltip support: preload a tiny shim (pointer cursor + tooltips)
-      local ptr="$GEN/swaync-pointer.so" src="$DIR/swaync/cursor/pointer.c" pre=""
-      if [[ ! $ptr -nt $src ]] && ! gcc -O2 -shared -fPIC -o "$ptr" "$src" $(pkg-config --cflags --libs gtk4) -lm 2>"$RUN/shim-build.log"; then
-        rm -f "$ptr"; SHIM_FAILED=1
+    panels)
+      build_helpers   # respawn after an edit runs the new code (nothing to do when it is up to date)
+      if [[ ! -x $GEN/bin/panels ]]; then
+        notify critical "Popups, notifications and OSD unavailable" \
+          "Building helpers/panels.c failed (needs gcc, gtk4 and gtk4-layer-shell). Details: $RUN/helpers-build.log"
+        return 1
       fi
-      [[ -f $ptr ]] && pre=$ptr
-      spawn swaync env LD_PRELOAD="$pre" HYPRMINIMAL_SWAYNC_TOOLTIPS="$DIR/swaync/tooltips.txt" \
-        swaync -c "$(cfg swaync swaync.json)" -s "$(cfg swaync swaync.css)"
-      # wait for the bus name: anything that calls swaync-client first would D-Bus-activate the stock swaync
-      for _ in $(seq 25); do busctl --user list 2>/dev/null | grep -q "^org.erikreider.swaync.cc " && break; sleep 0.1; done
-      [[ ${SHIM_FAILED:-} ]] && notify normal "Control centre: no pointer cursor/tooltips" \
-        "Building swaync/cursor/pointer.c failed (needs gcc and gtk4 headers). Details: $RUN/shim-build.log" ;;
-    swayosd-server)
-      spawn swayosd swayosd-server --config "$DIR/swayosd/config.toml" --style "$(f=$GEN/swayosd.css; [[ -f $f ]] && echo "$f" || echo "$DIR/swayosd/style.css")" ;;
+      spawn panels "$GEN/bin/panels"
+      # wait for it on the bus: notifications sent before that would get no daemon
+      for _ in $(seq 30); do busctl --user list 2>/dev/null | grep -q "^dev.hyprminimal.Panels " && break; sleep 0.1; done ;;
     *) echo "hyprminimal: unknown component $1" >&2; return 2 ;;
   esac
 }
 
 stop_one() {
   pkill -x "$1"
-  if [[ $1 == waybar ]]; then   # its helpers never outlive the bar
-    pkill -f 'playerctl --follow metadata --format'
-    pkill -f 'hyprminimal/(scripts/netspeed\.sh|\.generated/bin/netspeed)'
-  fi
-  [[ $1 == swaync ]] && systemctl --user stop swaync.service 2>/dev/null   # a D-Bus-activated copy, if any
   for _ in $(seq 20); do pgrep -x "$1" >/dev/null || break; sleep 0.05; done
 }
 
 # small C helpers (helpers/*.c -> .generated/bin/), rebuilt when the source is newer. A first line
-# "// pkg-config: lib ..." adds those libraries (the GTK bar popups, helpers/panels.c). Without gcc the bar
-# falls back to scripts/netspeed.sh's loop and the watchdog to polling every 3 s; the popups need it.
+# "// pkg-config: lib ..." adds those libraries (the GTK bar popups, helpers/panels.c). gcc is required
+# (packages.txt): there are no script fallbacks for the popups or the watchdog's waitpids.
 build_helpers() {
   local src out libs flags
   mkdir -p "$GEN/bin"
   for src in "$DIR"/helpers/*.c; do
     out="$GEN/bin/$(basename "$src" .c)"
-    [[ $out -nt $src ]] && continue
+    # helpers/NAME/*.c are #included by helpers/NAME.c: a change there rebuilds it too
+    [[ $out -nt $src && -z $(find "$DIR/helpers/$(basename "$src" .c)" -name '*.c' -newer "$out" 2>/dev/null) ]] && continue
     flags=()
     read -r libs < "$src"
     if [[ $libs == "// pkg-config: "* ]]; then
@@ -112,7 +104,7 @@ build_helpers() {
   done
 }
 
-# bar popups (calendar, battery, network, system) + clock click strip: helpers/panels.c, resident
+# bar popups (calendar, battery, network, Wi-Fi list, system) + clock click strip: helpers/panels.c, resident
 panels_quit() {
   gdbus call --session --dest dev.hyprminimal.Panels --object-path /dev/hyprminimal/Panels \
     --method org.gtk.Actions.Activate quit "[]" "{}" >/dev/null 2>&1
@@ -214,11 +206,11 @@ Log: $RUN/${LOG[$c]}.log — after fixing run: hyprminimal restart"
         notify normal "${NAME[$c]} stopped, restarted it" "$reason"
       fi
     done
-    if [[ $again || ! -x $waiter || ${#pid[@]} -eq 0 ]]; then sleep 3; continue; fi   # something changed: look again soon
+    if [[ $again || ${#pid[@]} -eq 0 ]]; then sleep 3; continue; fi   # something changed: look again soon
     t=-1
     for c in "${!pid[@]}"; do unproven "$c" && t=6000; done     # mark_good needs a look after 5 s of uptime
     for c in "${!gave[@]}"; do [[ ${gave[$c]} ]] && t=30000; done  # notice a stopped one restarted by hand
-    "$waiter" "$t" "${pid[@]}" || [[ $? == 1 ]] || sleep 3       # 2 = error: fall back to polling
+    "$waiter" "$t" "${pid[@]}" || [[ $? == 1 ]] || sleep 3       # 2 = error (or not built): don't spin
     sleep 1   # an exit is often a restart in progress (Settings applying new values): let it finish
   done
 }
@@ -231,6 +223,7 @@ stop_components() {
   pkill -f "$DIR/bin/hyprminimal watchdog"; pkill -f "$GEN/bin/waitpids"
   for c in "${COMPONENTS[@]}"; do stop_one "$c"; done
   pkill -x hyprsunset
+  pkill -x swaync; pkill -x swayosd-server   # older hyprminimal ran these; helpers/panels.c does both now
   pkill -x swaybg   # older hyprminimal drew the wallpaper with it; helpers/panels.c draws the desktop now
   [[ -f $RUN/caffeine.pid ]] && kill "$(cat "$RUN/caffeine.pid")" 2>/dev/null; rm -f "$RUN/caffeine.pid"
   sleep 0.3
@@ -243,33 +236,26 @@ start_components() {
   if [[ ${HYPRMINIMAL_FORCE_APPLY:-} || ! -f $stamp ]] \
      || [[ $(find "$DIR" \( -path "$GEN" -o -path "$DIR/.git" \) -prune -o -newer "$stamp" -print -quit 2>/dev/null) ]]; then
     if err=$("$DIR/bin/hyprminimal-settings" --apply 2>&1); then touch "$stamp"
-    else RENDER_ERR=${err##*$'\n'}; rm -f "$stamp"; fi   # reported once swaync is up
+    else RENDER_ERR=${err##*$'\n'}; rm -f "$stamp"; fi   # reported once panels is up
   fi
   local nl temp
   read -r nl temp < "$GEN/nightlight" 2>/dev/null
   build_helpers
-  # hyprminimal owns swaync: mask the stock user unit so D-Bus can't start a second, unstyled copy
-  # whenever a notification arrives while ours restarts (undo: systemctl --user unmask swaync.service)
-  [[ $(systemctl --user is-enabled swaync.service 2>/dev/null) == masked ]] || systemctl --user mask -q swaync.service
-  # swaync first: waybar's notification module calls swaync-client (see start_one)
-  start_one swaync
+  # helpers/panels.c is the notification daemon: if swaync is still installed, keep its user unit masked so
+  # D-Bus can't start it whenever a notification arrives while panels restarts (undo: systemctl --user unmask swaync.service)
+  [[ -e /usr/lib/systemd/user/swaync.service && $(systemctl --user is-enabled swaync.service 2>/dev/null) != masked ]] \
+    && systemctl --user mask -q swaync.service
+  # panels first: it owns the notification bus name and writes the state the bar's bell shows
+  start_one panels
   start_one waybar
-  start_one swayosd-server
   # one "current player" for bar, panel and media keys (several Firefox tabs = several players)
   pgrep -x playerctld >/dev/null || spawn playerctld playerctld daemon
   [[ ${nl:-} == on ]] && spawn hyprsunset hyprsunset -t "${temp:-4000}"
-  # settings app, started hidden so Super+I / Super+H (and the Wi-Fi list popup) open instantly.
-  # Settings → General → Keep Settings ready (.generated/preload) off: cold start on first use instead.
-  local preload=on; read -r preload < "$GEN/preload" 2>/dev/null
-  [[ $preload == off ]] || pgrep -f '^python3 -I [^ ]*/settings/hyprminimal_settings\.py' >/dev/null \
+  # Settings → General → Keep Settings ready (.generated/preload, off by default): start the settings app
+  # hidden so Super+I / Super+H open instantly (~110 MB resident). Off: cold start (~0.5 s) on first use.
+  local preload=off; read -r preload < "$GEN/preload" 2>/dev/null
+  [[ $preload != on ]] || pgrep -f '^python3 -I [^ ]*/settings/hyprminimal_settings\.py' >/dev/null \
     || spawn settings "$DIR/bin/hyprminimal-settings" --preload
-  # bar popups (calendar, battery, network, system), clock click strip, desktop background and the
-  # workspace-switch watch that closes the control center: one small C program
-  if [[ -x $GEN/bin/panels ]]; then
-    pgrep -f "^$GEN/bin/panels" >/dev/null || spawn panels "$GEN/bin/panels"
-  else
-    notify critical "Bar popups unavailable" "Building helpers/panels.c failed (needs gcc, gtk4 and gtk4-layer-shell). Details: $RUN/helpers-build.log"
-  fi
   if [[ ${RENDER_ERR:-} ]]; then set_error settings "Settings could not be applied: $RENDER_ERR"; else clear_error settings; fi
   [[ ${RENDER_ERR:-} ]] && notify critical "hyprminimal: settings could not be applied" \
     "$RENDER_ERR
@@ -285,6 +271,10 @@ run_startup() {
   local sig=${HYPRLAND_INSTANCE_SIGNATURE:-no-hyprland}
   [[ $(cat "$RUN/startup.done" 2>/dev/null) == "$sig" ]] && return
   printf '%s\n' "$sig" >"$RUN/startup.done"
+  # Bluetooth is off at every login (install.sh also sets AutoEnable=false); hyprminimal restart keeps
+  # whatever you switched on. In the background: bluetoothctl can take a moment while bluetoothd starts.
+  ( unlock_fd; systemctl is-active -q bluetooth && timeout 5 bluetoothctl power off ) >/dev/null 2>&1 </dev/null &
+  disown
   local cmd
   while IFS= read -r cmd; do
     [[ $cmd ]] || continue
@@ -328,10 +318,24 @@ case ${1:-} in
   watchdog) watchdog ;;
   status)
     [[ -e $RUN/active ]] && echo "hyprminimal: active" || echo "hyprminimal: stopped"
-    for c in "${COMPONENTS[@]}"; do
-      printf '  %-15s %s%s\n' "$c" "$(pgrep -x "$c" >/dev/null && echo running || echo -)" \
-        "$([[ -e $RUN/fallback/$c ]] && echo ' (last working settings)')"
+    # every process hyprminimal runs, with its resident memory (RSS, shared libraries counted in each)
+    rows=(
+      "waybar|-x waybar" "panels|-f ^$GEN/bin/panels" "settings|-f ^python3 -I [^ ]*/settings/hyprminimal_settings\.py"
+      "playerctld|-x playerctld" "hyprsunset|-x hyprsunset" "watchdog|-f $DIR/bin/hyprminimal watchdog"
+      "media|-f ^$GEN/bin/media" "waitpids|-f ^$GEN/bin/waitpids"
+    )
+    total=0 procs=0
+    printf '  %-15s %-8s %8s\n' component state RAM
+    for r in "${rows[@]}"; do
+      c=${r%%|*}; read -r how pat <<<"${r#*|}"
+      mapfile -t pids < <(pgrep "$how" "$pat")
+      kb=0; for p in "${pids[@]}"; do v=$(ps -o rss= -p "$p" 2>/dev/null) && kb=$(( kb + v )); done
+      if (( ${#pids[@]} )); then state=running; mem=$(awk -v k="$kb" 'BEGIN{printf "%.1f MB", k/1024}')
+      else state=-; mem=; fi
+      (( total += kb, procs += ${#pids[@]} ))
+      printf '  %-15s %-8s %8s%s\n' "$c" "$state" "$mem" "$([[ -e $RUN/fallback/$c ]] && echo ' (last working settings)')"
     done
+    printf '  %-15s %-8s %8s\n' total "$procs proc" "$(awk -v k="$total" 'BEGIN{printf "%.1f MB", k/1024}')"
     for f in "$ERR"/*; do [[ -f $f ]] && printf 'error %s: %s\n' "${f##*/}" "$(<"$f")"; done
     # packages are checked here and by install.sh, not at every login: one pacman call for the whole list
     mapfile -t miss < <(pacman -T $(awk '!/^[[:space:]]*#/ && NF {print $1}' "$DIR/packages.txt") 2>/dev/null)

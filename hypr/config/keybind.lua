@@ -150,7 +150,7 @@ hl.bind("XF86AudioNext", hl.dsp.exec_cmd(SHELLMSG .. " media next"), { locked = 
 hl.bind("XF86AudioPrev", hl.dsp.exec_cmd(SHELLMSG .. " media previous"), { locked = true, description = "Previous track" })
 hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd(scrPath .. "/accel-step.sh volume up"), { locked = true, repeating = true, description = "Volume up (hold to accelerate)" })
 hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd(scrPath .. "/accel-step.sh volume down"), { locked = true, repeating = true, description = "Volume down (hold to accelerate)" })
-hl.bind("XF86AudioMute", hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"), { locked = true, description = "Volume mute" })
+hl.bind("XF86AudioMute", hl.dsp.exec_cmd(SHELLMSG .. " volume mute"), { locked = true, description = "Volume mute" })
 
 -- 12. Brightness
 hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd(scrPath .. "/accel-step.sh brightness down"), { locked = true, repeating = true, description = "Brightness down (hold to accelerate)" })

@@ -1,6 +1,6 @@
 """NetworkManager helpers without GTK: nmcli calls, Wi-Fi/hotspot state, hotspot on/off.
 
-Shared by Settings → Network (network_page.py), the bar's Wi-Fi popup (panels.py) and the C network
+Shared by Settings → Network (network_page.py) and the C network
 popup (helpers/panels.c), which runs this file as a small CLI:
   python3 -I settings/nm.py hotspot-status   key=value lines (supported, on, ssid, clients, together, station)
   python3 -I settings/nm.py hotspot on|off     exit 0 on success, the reason on stderr otherwise

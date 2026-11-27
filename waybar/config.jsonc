@@ -1,5 +1,5 @@
 // hyprminimal bar: matches your active Noctalia bar
-// left: workspaces | center: "15 |" 17:04 | right: media capsule, notifications, battery, network speed (busier direction)
+// left: workspaces | center: "15 |" 17:04 | right: media capsule, notifications, battery, download speed
 {
   "layer": "top",
   "position": "top",
@@ -12,7 +12,7 @@
 
   "modules-left":   ["ext/workspaces"],
   "modules-center": ["clock#date", "clock"],
-  "modules-right":  ["custom/media", "custom/notification", "battery", "custom/net"],
+  "modules-right":  ["custom/media", "custom/notification", "battery", "network#speed"],
 
   // optional widgets (turned on/off in hyprminimal-settings → Bar)
   "pulseaudio": {
@@ -58,13 +58,16 @@
     "on-click-right": "hyprminimal-msg control-center"
   },
 
+  // media capsule: helpers/media.c (D-Bus, one small process). The icon is a square-dot equalizer image in
+  // the bar CSS, picked by class: f0..f3 three times a second while playing, a still row when paused.
+  // Nothing playing: empty text, waybar hides the capsule.
   "custom/media": {
     "cursor": true,
-    "exec": "$HYPRMINIMAL_DIR/scripts/media.sh",
-    "tooltip": false,
-    "restart-interval": 2,
+    "exec": "$HYPRMINIMAL_DIR/.generated/bin/media",
     "return-type": "json",
-    "escape": false,
+    "restart-interval": 2,
+    "escape": true,
+    "tooltip": false,
     "on-click": "hyprminimal-msg control-center",
     "on-click-middle": "playerctl play-pause",
     "on-scroll-up": "playerctl next",
@@ -87,9 +90,12 @@
       "dnd-inhibited-notification": "󰂛", "dnd-inhibited-none": "󰪑"
     },
     "return-type": "json",
-    "exec": "swaync-client -swb",
+    // state written by helpers/panels.c (the notification daemon), which signals the bar only when it changes
+    "exec": "cat \"$XDG_RUNTIME_DIR/hyprminimal/notif.json\" 2>/dev/null || echo '{\"alt\":\"none\"}'",
+    "interval": "once",
+    "signal": 8,
     "on-click": "hyprminimal-msg control-center",
-    "on-click-right": "swaync-client -d -sw",
+    "on-click-right": "hyprminimal-msg dnd toggle",
     "escape": true
   },
 
@@ -107,14 +113,15 @@
     "on-click": "hyprminimal-msg panel battery"
   },
 
-  "custom/net": {
+  // download speed: waybar's own network module (kernel byte counters, no helper process)
+  "network#speed": {
     "cursor": true,
-    "exec": "$HYPRMINIMAL_DIR/scripts/netspeed.sh",
+    "interval": 2,
+    "format": "<span size='125%' rise='-1pt'>󰄠</span>  {bandwidthDownBytes}",
+    "format-disconnected": "<span size='125%' rise='-1pt'>󰄠</span>  0B/s",
     "tooltip": false,
     // left inside its fixed width (see fixed_widths_css): the icon never moves
     "align": 0,
-    "return-type": "json",
-    "restart-interval": 2,
     "on-click": "hyprminimal-msg panel network"
   }
 }

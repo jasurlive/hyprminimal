@@ -21,8 +21,8 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 | `hyprminimal start` | Starts hyprminimal (bar, notifications, OSD, desktop background). Packages are not checked at login: `install.sh` verifies them, and `hyprminimal status` lists any missing from `packages.txt` with the `pacman` line to install them. |
 | `hyprminimal stop` | Stops hyprminimal, for this session only. |
 | `hyprminimal restart` | Restarts everything, including the settings process. Run it after editing any file in this folder by hand. |
-| `hyprminimal respawn NAME` | Restarts one component: `waybar`, `swaync` or `swayosd-server`. |
-| `hyprminimal status` | Shows whether hyprminimal is active and which components are running. |
+| `hyprminimal respawn NAME` | Restarts one component: `waybar` or `panels` (popups, control center, notifications, OSD; rebuilt first if its C source changed). |
+| `hyprminimal status` | Shows whether hyprminimal is active, every process it runs with its RAM (RSS), and any missing packages. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
 
 All of these are in `~/www/hyprminimal/bin/`.
@@ -74,7 +74,7 @@ GREETER_CONF=.generated/hyprlock.conf /tmp/g --test` (password `test`, Esc quits
 | Clock or date | Calendar with the time, centred under the clock. Hovering shows it, moving away hides it; a click pins it open (click again, click outside or Esc to close). Right click: control center. |
 | Battery | Power mode |
 | ↓ speed | Network |
-| Media capsule (square-dot equalizer while playing, flat dots while paused) | Control center (player) |
+| Media capsule (square-dot equalizer while playing, flat dots while paused) | Control center (player). Middle click: play/pause; scroll: next/previous track |
 | Bell | Control center |
 
 ### Session menu (keys 1–4)
@@ -96,7 +96,11 @@ While the control center is open, a number key presses a tile. Each tile shows i
 4. **Bluetooth**
 5. **Caffeine** blocks sleep and lid-close until you turn it off.
 6. **Night Light** turns `hyprsunset` on or off at the temperature set in Settings.
-7. **Silent** hides notification popups. Notifications still collect in the control center.
+7. **Silent** hides notification popups. Notifications still collect in the control center. A right click on the bar's bell does the same.
+
+Also: **K** plays/pauses the current player, **C** clears all notifications. The notification list opens
+collapsed (the newest one); click the "N notifications" header to see them all. Click a notification to open
+it in its app (or dismiss it when the app offers nothing to open).
 
 Notifications sit under the buttons. The list opens collapsed to one card; click the
 "N notifications" header to show them all.
@@ -119,7 +123,7 @@ Any key that is missing from the file falls back to its default.
 |---|---|---|---|
 | Interface font | `general.font` | `Noto Sans` | Used by the bar, panels, notifications and lock screen. |
 | Theme | General | Charcoal | Charcoal, Hygge, Spruce, Fjord (dark), Linen, Matte, Sage (light), all from the django-react template, or Tokyo Night. Bar, popups, notifications, OSD, launcher, kitty, lock screen, login screen, Hyprland borders and Settings follow it. See [Customizing the look](#customizing-the-look). |
-| Keep Settings ready | `general.preload` | On | Settings starts at login, parked on a hidden workspace: Super+I only moves it in or out (~20 ms, no redraw; ~110 MB RAM). Super+I closes it whenever it shows on your workspace, wherever the keyboard focus is. Off: cold start on first use (~0.5 s), and it quits 10 min after you close it. Takes effect live. |
+| Keep Settings ready | `general.preload` | Off | Settings starts at login, parked on a hidden workspace: Super+I only moves it in or out (~20 ms, no redraw; ~110 MB RAM). Super+I closes it whenever it shows on your workspace, wherever the keyboard focus is. Off: cold start on first use (~0.5 s), and it quits 10 min after you close it. Takes effect live. |
 
 ### Bar
 | Setting | Key | Range / values | Default |
@@ -229,7 +233,7 @@ Shows the version of each package and the paths of `settings.json` and `keybind.
 **Pick a theme:** Settings → General → Theme. It applies at once: bar, notifications, control center, OSD,
 launcher and session menu, bar popups, Settings, kitty, the lock screen and Hyprland's window borders.
 
-**How it works.** The style files in the repo (`waybar/style.css`, `swaync/style.css`, `swayosd/style.css`,
+**How it works.** The style files in the repo (`waybar/style.css`, `settings/panels.css`,
 `rofi/*.rasi`, `hyprlock/hyprlock.conf`, the CSS inside `settings/*.py`) are written in
 Tokyo Night colours. `settings/themes.py` gives every one of those colours a *role* (`primary`, `surface`,
 `outline`, `on_surface`, …) and, when you pick a theme, writes copies with each colour swapped for the theme's
@@ -266,8 +270,9 @@ Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu 
 | Generated file | Used by |
 |---|---|
 | `.generated/theme` | Current theme, dark/light |
-| `.generated/palette.css` | Colour roles (GTK `@define-color`), read by `scripts/media.sh` |
-| `.generated/waybar.css`, `swaync.css`, `swayosd.css` | Bar, notifications/control center, OSD |
+| `.generated/palette.css` | Colour roles (GTK `@define-color`) |
+| `.generated/waybar.css`, `panels.css` | Bar; popups, control center, notifications and OSD |
+| `.generated/notify.conf` | Notification popup position and seconds on screen (read live by `helpers/panels.c`) |
 | `.generated/rofi/*.rasi` | Launcher and session menu |
 | `.generated/hyprlock.conf` | Lock screen |
 | `.generated/kitty-colors.conf` | kitty |
@@ -308,7 +313,7 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 | `brightness +5` / `brightness -5` | Change the brightness |
 | `caffeine` | Toggle Caffeine |
 | `nightlight` | Toggle Night Light |
-| `panel calendar\|battery\|network\|system` | Open a bar popup (`wifi`: the network list) |
+| `panel calendar\|battery\|network\|wifi\|system` | Open a bar popup (`wifi`: the network list) |
 
 ---
 
@@ -318,7 +323,7 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 |---|---|
 | Your settings | `settings.json` |
 | Generated configs (never edit these) | `.generated/`, rebuilt from `settings.json` |
-| Hand-editable base configs | `waybar/`, `swaync/`, `swayosd/`, `rofi/`, `hyprlock/`, `colors/` (written in Tokyo Night colours; themed copies go to `.generated/`) |
+| Hand-editable base configs | `waybar/`, `settings/panels.css`, `rofi/`, `hyprlock/`, `colors/` (written in Tokyo Night colours; themed copies go to `.generated/`) |
 | Themes | `settings/themes.py` |
 | Logs | `$XDG_RUNTIME_DIR/hyprminimal/*.log` (usually `/run/user/1000/hyprminimal/`). The previous run of each log is kept as `NAME.log.1`. |
 | "hyprminimal is active" flag | `$XDG_RUNTIME_DIR/hyprminimal/active` |
@@ -330,13 +335,10 @@ Log files:
 | Log | Component |
 |---|---|
 | `waybar.log` | Bar |
-| `swaync.log` | Notifications and control center |
-| `swayosd.log` | Volume/brightness OSD |
-| `settings.log` | Settings app and the Wi-Fi list popup |
-| `panels.log` | Bar popups (calendar, battery, network, system) and the clock click strip |
+| `settings.log` | Settings app |
+| `panels.log` | Popups, control center, notifications, OSD, launcher, desktop and the clock click strip |
 | `helpers-build.log` | Build of the C helpers (`helpers/*.c`, incl. the bar popups) |
 | `watchdog.log` | Watchdog |
-| `shim-build.log` | Build of the control center shim (cursor, tooltips, keys, live labels) |
 
 ---
 
@@ -352,8 +354,7 @@ hyprminimal restart                                  # fixes most problems
 
 ### The watchdog (automatic crash recovery)
 While hyprminimal is active, a watchdog restarts components that die. It does not poll: it sleeps in the kernel
-(`helpers/waitpids.c`) until one of them exits, so it costs nothing while everything runs. Without gcc it falls back to
-checking every 3 seconds.
+(`helpers/waitpids.c`) until one of them exits, so it costs nothing while everything runs.
 - **A component dies.** The watchdog restarts it and sends a notification titled *"Bar stopped, restarted it"*, with the last error from the log, or `crashed (SIGSEGV)` if the program crashed.
 - **It dies 3 times within 60 seconds.** The watchdog stops restarting it and sends a critical notification: *"… keeps crashing, stopped restarting it"*. The notification includes the reason, what to check and the log path. Fix the cause, then run `hyprminimal restart`.
 
@@ -362,8 +363,8 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 ### Problems by symptom
 
 **No bar or shell at all after login**
-- Run `hyprminimal start` from a terminal and read its output. If it says packages are missing, install them:
-  `sudo pacman -S --needed $(grep -v '^#' ~/www/hyprminimal/packages.txt)`
+- Run `hyprminimal start` from a terminal and read its output, then run `hyprminimal status`. If it lists
+  missing packages, run the `sudo pacman -S --needed …` line it prints.
 - Check that `startup.lua` still has the hyprminimal line (see [section 1](#hyprminimal-as-the-default-shell)).
 - No terminal? Press Super+Enter, or whatever your terminal key is. If even that fails, switch to a TTY with **Ctrl+Alt+F2** and run `hyprminimal start` there, or fix the files from it.
 
@@ -392,22 +393,18 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 **Bar popups (calendar, battery, network) don't appear or appear in the wrong place**
 - They need `gtk4-layer-shell` (`/usr/lib/libgtk4-layer-shell.so`). Install it with `sudo pacman -S gtk4-layer-shell`, then run `hyprminimal restart`.
 
-**Control center: no hand cursor, tooltips, key numbers or live Wi-Fi/System info** (a notification says the build failed)
-- The small C shim in `swaync/cursor/pointer.c` couldn't be compiled.
-- Install the build tools: `sudo pacman -S --needed gcc pkgconf gtk4`. Then run `hyprminimal restart`.
-- The compiler output is in `shim-build.log`.
+**No popups, control center, notifications or OSD** (a notification or the bar's red pill says the build failed)
+- They are one C program, `helpers/panels.c` (with `helpers/panels/*.c`), built into `.generated/bin/panels`.
+- Install the build tools: `sudo pacman -S --needed gcc pkgconf gtk4 gtk4-layer-shell`, then run `hyprminimal restart`.
+- The compiler output is in `helpers-build.log`, the program's own messages in `panels.log`.
 
-**Bar speed or watchdog use the slower shell fallback**
-- `helpers/*.c` (network speed, watchdog wait) are built into `.generated/bin/` by `hyprminimal start`/`restart`.
-  If gcc is missing, the shell versions run instead (they work, but wake the CPU more). Build errors are in `helpers-build.log`.
-
-**Notifications look like stock swaync, or appear twice**
-- Something started the stock swaync through D-Bus before hyprminimal's copy was up.
-- Fix it with `systemctl --user stop swaync.service`, then `hyprminimal respawn swaync`.
+**Notifications go to another daemon, or appear twice**
+- Another notification daemon (swaync, mako, dunst) owns `org.freedesktop.Notifications`. Check with
+  `busctl --user status org.freedesktop.Notifications`, stop it, then run `hyprminimal respawn panels`.
 
 **No volume or brightness OSD**
-- Run `hyprminimal respawn swayosd-server` and check `swayosd.log`.
-- Brightness also needs `brightnessctl`, and your user may need to be in the `video` group.
+- Run `hyprminimal respawn panels` and check `panels.log`.
+- Volume goes through `wpctl` (wireplumber); brightness through logind, which needs a backlight in `/sys/class/backlight`.
 
 **The media capsule is empty or shows the wrong player**
 - Check that `playerctld` is running: `pgrep playerctld || playerctld daemon`.

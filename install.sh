@@ -206,6 +206,20 @@ sudo install -D -o root -g root -m 755 "$DIR/scripts/hotspot-iface" /usr/local/l
   '});' | sudo install -D -m 644 /dev/stdin /etc/polkit-1/rules.d/50-hyprminimal-hotspot.rules \
   || warn "could not install the hotspot helper; the hotspot will disconnect Wi-Fi while it's on"
 sudo systemctl enable bluetooth.service power-profiles-daemon.service
+# Bluetooth starts off: BlueZ powers adapters on at boot unless AutoEnable=false ([Policy] in main.conf).
+# hyprminimal also switches it off at every login (bin/hyprminimal run_startup); the control center toggles it.
+bt=/etc/bluetooth/main.conf
+if [[ -f $bt ]]; then
+  if grep -q '^[[:space:]]*AutoEnable[[:space:]]*=' "$bt"; then
+    sudo sed -i 's/^[[:space:]]*AutoEnable[[:space:]]*=.*/AutoEnable=false/' "$bt"
+  elif grep -q '^\[Policy\]' "$bt"; then
+    sudo sed -i '/^\[Policy\]/a AutoEnable=false' "$bt"
+  else
+    printf '\n[Policy]\nAutoEnable=false\n' | sudo tee -a "$bt" >/dev/null
+  fi
+else
+  printf '[Policy]\nAutoEnable=false\n' | sudo install -D -m 644 /dev/stdin "$bt"
+fi
 systemctl --user enable pipewire.socket pipewire-pulse.socket wireplumber.service 2>/dev/null || true
 
 # ------------------------------------------------------------------ login: the lock screen as the login screen

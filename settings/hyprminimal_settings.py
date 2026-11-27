@@ -29,14 +29,11 @@ SETTINGS = DIR / "settings.json"
 GEN = DIR / ".generated"
 RUN = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "hyprminimal"
 ERRORS = RUN / "errors"   # NAME: why that part failed (written by bin/hyprminimal and render errors below)
-# libgtk4-layer-shell is already loaded into this process: don't hand it to the programs we start
-# (waybar is GTK3 and crashes when a GTK4 library is preloaded into it)
+# never hand a GTK4 LD_PRELOAD on to the programs we start (waybar is GTK3 and crashes with one)
 os.environ.pop("LD_PRELOAD", None)
 # Settings page -> the component whose failure is shown on it (red banner)
-PAGE_COMPONENT = {"bar": "waybar", "notifications": "swaync",
-                  "general": "settings", "system": "swayosd-server"}
-COMPONENT_NAME = {"waybar": "Bar", "swaync": "Notifications",
-                  "settings": "Settings", "swayosd-server": "Volume/brightness OSD"}
+PAGE_COMPONENT = {"bar": "waybar", "notifications": "panels", "general": "settings"}
+COMPONENT_NAME = {"waybar": "Bar", "panels": "Popups, notifications and OSD", "settings": "Settings"}
 
 
 def read_error(comp):
@@ -70,7 +67,7 @@ IDLE_QUIT_SECONDS = 600                       # hidden window stays resident thi
 DEFAULTS = {
     "general": {"font": "Noto Sans", "theme": themes.DEFAULT,
                 # Settings starts hidden at login so Super+I opens instantly; off = cold start on demand
-                "preload": True},
+                "preload": False},
     # desktop background (helpers/panels.c): the name under the logo ("" = no text), logo on/off
     "desktop": {"name": "hyprminimal", "logo": True},
     "bar": {
@@ -100,7 +97,7 @@ WIDGET_MODULE = {
     "workspaces": "ext/workspaces", "date": "clock#date",
     "clock": "clock", "media": "custom/media", "notifications": "custom/notification",
     "wifi": "network#wifi", "bluetooth": "bluetooth", "volume": "pulseaudio", "tray": "tray",
-    "battery": "battery", "network_speed": "custom/net",
+    "battery": "battery", "network_speed": "network#speed",
 }
 
 
@@ -266,14 +263,15 @@ def text_px(markup, family, px, weight):
 
 def fixed_widths_css(font, T, I, W):
     """Network speed and media capsule keep one width whatever they show: no jumping bar."""
-    icon = lambda g: f"<span size='{round(100 * I / T)}%' rise='-1pt'>{g}</span>  "   # as the scripts print it
+    icon = lambda g: f"<span size='{round(100 * I / T)}%' rise='-1pt'>{g}</span>  "   # as network#speed shows it
     tnum = lambda s: f"<span font_features='tnum'>{s}</span>"
-    net = max(text_px(icon("\U000f0120") + tnum(v), font, T, W) for v in ("888.8 MB/s", "888.8 kB/s", "888 B/s"))
-    title = "o" * 13 + "…"                      # media.sh cuts titles to 14 characters (typical letters)
+    # waybar's {bandwidthDownBytes}: "850B/s", "123kB/s", "4.7MB/s"
+    net = max(text_px(icon("\U000f0120") + tnum(v), font, T, W) for v in ("888MB/s", "888kB/s", "888B/s"))
+    title = "o" * 13 + "…"                      # typical short title (helpers/media.c cuts at 26 characters)
     media = max(text_px(title, font, T, W), text_px("Nothing Playi…", font, T, W))
     w, _h, _d, _g = eq_geometry(I)
     # the equalizer image sits in the left padding (background-image), the title is the label
-    return (f'#custom-net {{ min-width: {net + 2}px; font-feature-settings: "tnum"; }}\n'
+    return (f'#network.speed {{ min-width: {net + 2}px; font-feature-settings: "tnum"; }}\n'
             f'#custom-media {{ min-width: {media + 2}px; padding-left: {14 + w + 8}px;'
             f' background-image: url("{GEN}/media-paused.png"); background-repeat: no-repeat;'
             f' background-position: 14px center; background-size: {w}px auto; }}\n'
@@ -281,8 +279,8 @@ def fixed_widths_css(font, T, I, W):
                       for i in range(len(EQ_FRAMES))))
 
 
-# dots per column, bottom up. scripts/media.sh steps through these frames (class f0, f1, …) a few times a
-# second while something plays: every column moves on every frame, never flat. Paused: no frames, no timer.
+# dots per column, bottom up. helpers/media.c steps through these frames (class f0, f1, …) 3 times a second
+# while something plays (a GTK3 CSS animation would wake waybar every display frame). Paused: no timer.
 EQ_FRAMES = [[3, 1, 4, 2, 3], [2, 3, 2, 4, 1], [4, 2, 3, 1, 2], [1, 4, 1, 3, 4]]
 EQ_ROWS = 4
 
@@ -467,22 +465,10 @@ def render(s):
         + battery_css(BAR_HEIGHT, I, W)
         + fixed_widths_css(font, T, I, W))
     clock_zone(b, font, T, I, C, W)
-    # scripts that print icons inline (media, network) size them relative to the text
-    (GEN / "icon_scale").write_text(f"{round(100 * I / T)}\n")
 
-    # swaync
+    # notifications (helpers/panels.c watches this file): popup corner and seconds on screen
     n = s["notifications"]
-    sc = json.loads((DIR / "swaync/config.json").read_text(encoding="utf-8"))
-    y, x = n["position"].split("-")
-    sc["positionY"], sc["positionX"] = y, x
-    sc["timeout"] = int(n["timeout"])
-    sc["timeout-low"] = int(n["timeout"])        # same for all, so the countdown bar is always right
-    (GEN / "swaync.json").write_text(json.dumps(sc, indent=2, ensure_ascii=False), encoding="utf-8")
-    (GEN / "swaync.css").write_text(
-        themes.palette_css(th) + themed_css(DIR / "swaync/style.css", th) +
-        f'* {{ font-family: "{font}", "Symbols Nerd Font"; }}\n'
-        '.notification { background-color: @surface; }\n'
-        f'.floating-notifications .notification:not(.critical) {{ animation-duration: {int(n["timeout"])}s; }}\n')
+    write_if_changed(GEN / "notify.conf", f"position={n['position']}\ntimeout={int(n['timeout'])}\n")
 
     # hyprlock
     lock = (DIR / "hyprlock/hyprlock.conf").read_text(encoding="utf-8")
@@ -511,7 +497,10 @@ def render(s):
     render_theme(th, I)
     # bar popups (helpers/panels.c watches this file and restyles live; the Wi-Fi list reads the template)
     write_if_changed(GEN / "panels.css", themes.recolor((DIR / "settings/panels.css").read_text(encoding="utf-8"), th)
-                     + f'window.hyprminimal-panel, window.hyprminimal-background {{ font-family: "{font}", "Symbols Nerd Font"; }}\n')
+                     + f'window.hyprminimal-panel, window.hyprminimal-background, window.hyprminimal-notifications, '
+                       f'window.hyprminimal-osd {{ font-family: "{font}", "Symbols Nerd Font"; }}\n'
+                     # the bar along the top of a popup runs out with the timeout
+                     + f'.notif-popups .notif.countdown {{ animation-duration: {int(s["notifications"]["timeout"])}s; }}\n')
 
     # desktop background: helpers/panels.c watches this file and redraws the desktop when it changes
     d = s["desktop"]
@@ -521,7 +510,7 @@ def render(s):
     write_if_changed(GEN / "desktop", f"logo={'on' if d.get('logo', True) else 'off'}\nname={name}\n")
 
     # simple values the shell scripts read
-    (GEN / "preload").write_text("on\n" if s["general"].get("preload", True) else "off\n")   # bin/hyprminimal
+    (GEN / "preload").write_text("on\n" if s["general"].get("preload", False) else "off\n")   # bin/hyprminimal
     (GEN / "nightlight").write_text(
         f"{'on' if s['nightlight']['enabled'] else 'off'} {int(s['nightlight']['temperature'])}\n")
 
@@ -548,7 +537,6 @@ def render_theme(th, icon_px=None):
     """Everything else that follows the theme: OSD, launcher, terminal, Hyprland borders."""
     (GEN / "theme").write_text(f"{th} {'dark' if themes.roles(th)['dark'] else 'light'}\n")
     (GEN / "palette.css").write_text(themes.palette_css(th))
-    (GEN / "swayosd.css").write_text(themed_css(DIR / "swayosd/style.css", th))
     rofi = GEN / "rofi"
     rofi.mkdir(exist_ok=True)
     for f in ("theme.rasi", "launcher.rasi", "menu.rasi"):
@@ -596,13 +584,12 @@ def gtk_theme(dark, font="Noto Sans"):
 
 
 def apply_theme(s):
-    """Live: restart the OSD, reload Hyprland (borders, blur) and kitty, tell GTK apps light or dark."""
+    """Live: reload Hyprland (borders, blur) and kitty, tell GTK apps light or dark. The popups, notifications
+    and OSD (helpers/panels.c) restyle themselves from .generated/panels.css."""
     th = themes.get(s["general"].get("theme"))
     gtk_theme(themes.roles(th)["dark"], s["general"]["font"])
     sh("pkill", "-USR1", "-x", "kitty")          # kitty re-reads its config (and our colours)
     sh("hyprctl", "reload")
-    if hyprminimal_active():
-        sh(str(DIR / "bin" / "hyprminimal"), "respawn", "swayosd-server")
 
 
 def toggle_bar_hidden(s):
@@ -624,9 +611,7 @@ def reload_bar():
 
 
 def reload_notifications():
-    if hyprminimal_active() and running("swaync"):
-        sh("swaync-client", "-R")
-        sh("swaync-client", "-rs")
+    """Nothing to do: helpers/panels.c re-reads .generated/notify.conf and panels.css when they change."""
 
 
 
@@ -1111,7 +1096,7 @@ def run_gui(start_page):
             if what == "theme":
                 self.get_application().restyle(self.s)
             if what == "preload":
-                self.get_application().set_preload(bool(self.s["general"].get("preload", True)))
+                self.get_application().set_preload(bool(self.s["general"].get("preload", False)))
             try:
                 render(self.s)
             except Exception as e:      # keep the running shell on its last rendered files
@@ -1326,9 +1311,9 @@ def run_gui(start_page):
             self.spin(g, "Show for", "notifications", "timeout", 1, 60, 1, "notifications", "seconds")
             g2 = self.group(p, "Do not disturb")
             r = Adw.SwitchRow(title="Do not disturb", subtitle="Hide popups; notifications still go to the control center")
-            dnd = (sh("swaync-client", "-D").stdout or "").strip() == "true" if running("swaync") else False
-            r.set_active(dnd)
-            r.connect("notify::active", lambda row, _p: sh("swaync-client", "-dn" if row.get_active() else "-df"))
+            r.set_active((RUN / "dnd").exists())          # helpers/panels.c keeps the state in this file
+            r.connect("notify::active", lambda row, _p: sh(str(DIR / "bin" / "hyprminimal-msg"), "dnd",
+                                                            "on" if row.get_active() else "off"))
             g2.add(r)
             self.button_row(g2, "Send a test notification", None, "Test",
                             lambda: sh("notify-send", "-a", "hyprminimal", "Test notification", "This is how it looks"),
@@ -1479,7 +1464,7 @@ def run_gui(start_page):
         def page_about(self):
             p = Adw.PreferencesPage()
             g = self.group(p, "hyprminimal", "A minimal shell for Hyprland, official Arch packages only.")
-            pkgs = ("hyprland", "waybar", "swaync", "swayosd", "rofi", "hyprlock")
+            pkgs = ("hyprland", "waybar", "rofi", "hyprlock")
             vers = dict(l.split()[:2] for l in sh("pacman", "-Q", *pkgs).stdout.splitlines() if " " in l)
             for pkg in pkgs:
                 g.add(Adw.ActionRow(title=pkg, subtitle=vers.get(pkg, "not installed")))
@@ -1715,17 +1700,7 @@ def run_gui(start_page):
             self.shown = False                # on screen (not parked, not unmapped)
             self.preloaded = False
             self._preload_held = False
-            self._held = False
-            import panels
-            self.panels = panels.PanelManager(self)
             self.restyle()
-            pa = Gio.SimpleAction.new("panel", GLib.VariantType.new("s"))
-            pa.connect("activate", lambda _a, v: self._safe_panel(v.get_string()))
-            self.add_action(pa)
-            # Hyprland (hypr/layerrules.lua): a click outside the popup or focus moving to a window
-            pc = Gio.SimpleAction.new("panel-close", None)
-            pc.connect("activate", lambda *_: self.panels.current and self.panels.close())
-            self.add_action(pc)
             # Super+M (bin/hyprminimal-msg bar): the bar was just shown/hidden, save that
             bt = Gio.SimpleAction.new("bar-toggled", None)
             bt.connect("activate", lambda *_: self._bar_toggled())
@@ -1749,14 +1724,14 @@ def run_gui(start_page):
                 w._syncing_bar = False
 
         def restyle(self, s=None):
-            """Theme the Settings window and the bar popups (live, no restart)."""
+            """Theme the Settings window (live, no restart). The bar popups (helpers/panels.c) reload
+            .generated/panels.css by themselves."""
             g = (s or load_settings())["general"]
             th = themes.get(g.get("theme"))
             dark = themes.roles(th)["dark"]
             Adw.StyleManager.get_default().set_color_scheme(
                 Adw.ColorScheme.FORCE_DARK if dark else Adw.ColorScheme.FORCE_LIGHT)
             self.css.load_from_string(themes.recolor(CSS, th).replace("%FONT%", g["font"]))
-            self.panels.restyle(th)
 
         def preload(self):
             """Started hidden by `hyprminimal start`: build the window and the keybinds page now,
@@ -1770,7 +1745,6 @@ def run_gui(start_page):
             self.win.show_page("keybinds")
             self.win._quiet = False
             self.win.show_page("last")
-            self.panels.prewarm()           # bar popups too
             self._map_parked()
 
         def _map_parked(self):
@@ -1817,28 +1791,6 @@ def run_gui(start_page):
                 self.win.set_visible(False)
                 if not self.preloaded:
                     self._idle_quit = GLib.timeout_add_seconds(IDLE_QUIT_SECONDS, self._quit_idle)
-
-        def panel_state(self, is_open):
-            """Started for the Wi-Fi popup (not preloaded): quit a while after it and the window are closed."""
-            if self._idle_quit:
-                GLib.source_remove(self._idle_quit)
-                self._idle_quit = None
-            if not is_open and not self.preloaded and not self.shown:
-                self._idle_quit = GLib.timeout_add_seconds(IDLE_QUIT_SECONDS, self._quit_idle)
-
-        def _safe_panel(self, kind):
-            """A bar popup that throws is reported and closed; Settings and the other popups keep working."""
-            try:
-                self.panels.toggle(kind)
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                try:
-                    self.panels.close()
-                except Exception:
-                    pass
-                sh("notify-send", "-a", "hyprminimal", "-u", "critical", f"The {kind} popup failed",
-                   f"{type(e).__name__}: {e}\nDetails: $XDG_RUNTIME_DIR/hyprminimal/settings.log")
 
         def present_page(self, page):
             if self.win is None:
@@ -1899,7 +1851,7 @@ def run_gui(start_page):
 
         def _quit_idle(self):
             self._idle_quit = None
-            if self.panels.current or self.shown:
+            if self.shown:
                 return False                  # in use again: the next close re-arms the timer
             self.quit()
             return False
@@ -1907,12 +1859,6 @@ def run_gui(start_page):
 
         def do_command_line(self, cl):
             args = cl.get_arguments()[1:]
-            if "--panel" in args and args.index("--panel") + 1 < len(args):
-                if not self._held:
-                    self.hold()                 # alive while the popup is open; panel_state() quits later
-                    self._held = True
-                self._safe_panel(args[args.index("--panel") + 1])
-                return 0
             if "--preload" in args:
                 if self.win is None:
                     self.preload()

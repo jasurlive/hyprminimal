@@ -27,23 +27,19 @@ case $cmd in
                     rc=$?; echo "[$(date +%T)] hyprlock exited with $rc, restarting" >> "$R/hyprlock.log"
                     sleep 0.5
                   done ;;
-  control-center) exec "$DIR/scripts/control-center.sh" ;;   # live info in the tiles, then toggle
-  panel)          # calendar | battery | network | system | launcher | session: helpers/panels.c. wifi (network list): Settings app
+  control-center) panels_call panel "[<'control'>]" ;;   # Super+S, the bell, the media capsule: helpers/panels.c
+  dnd)            # Do not disturb: on | off | toggle (bar bell right click, Settings → Notifications)
+                  [[ ${1:-toggle} =~ ^(on|off|toggle)$ ]] || exit 2
+                  panels_call dnd "[<'${1:-toggle}'>]" ;;
+  panel)          # calendar | battery | network | wifi | system | launcher | session | control: helpers/panels.c
                   [[ ${1:-} =~ ^[a-z]+$ ]] || exit 2
-                  if [[ $1 == wifi ]]; then
-                    panels_call panel-close "[]"
-                    exec "$DIR/bin/hyprminimal-settings" --panel wifi
-                  fi
                   panels_call panel "[<'$1'>]" && exit 0
                   # not running (yet): start it; it toggles the popup itself
                   [[ -x $DIR/.generated/bin/panels ]] && exec setsid -f "$DIR/.generated/bin/panels" --panel "$1" >/dev/null 2>&1 </dev/null
                   notify-send -a hyprminimal -u critical "Bar popups unavailable" \
                     "helpers/panels.c isn't built yet: run hyprminimal restart (needs gcc, gtk4, gtk4-layer-shell)" ;;
   panel-close)    # close the open bar popup (sent by Hyprland on a click outside it, see hypr/layerrules.lua)
-                  panels_call panel-close "[]" &
-                  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-                    --method org.gtk.Actions.Activate panel-close "[]" "{}" >/dev/null 2>&1
-                  wait ;;
+                  panels_call panel-close "[]" ;;
   settings-close) # hide the Settings window (Hyprland, on a click outside it: hypr/layerrules.lua)
                   exec gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
                     --method org.gtk.Actions.Activate close "[]" "{}" >/dev/null 2>&1 ;;
@@ -55,8 +51,14 @@ case $cmd in
                   exec "$DIR/scripts/session.sh" ;;
   media)
     case ${1:-toggle} in toggle) exec playerctl play-pause ;; *) exec playerctl "$1" ;; esac ;;
-  volume)         exec swayosd-client --output-volume "$1" --max-volume 100 ;;   # $1 = +N / -N
-  brightness)     exec swayosd-client --brightness "$1" ;;
+  volume)         # $1 = +N | -N | mute: changed and shown by the OSD in helpers/panels.c (wpctl when it isn't running)
+                  [[ ${1:-} =~ ^([+-][0-9]+|mute)$ ]] || exit 2
+                  panels_call osd "[<'volume:$1'>]" && exit 0
+                  if [[ $1 == mute ]]; then exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle; fi
+                  exec wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ "${1#[+-]}%${1:0:1}" ;;
+  brightness)     # $1 = +N | -N, through the OSD (it sets the backlight via logind)
+                  [[ ${1:-} =~ ^[+-][0-9]+$ ]] || exit 2
+                  panels_call osd "[<'brightness:$1'>]" ;;
   caffeine)       # block idle, sleep and lid-close until toggled off
     R=${XDG_RUNTIME_DIR:-/tmp}/hyprminimal
     if [[ -f $R/caffeine.pid ]] && kill "$(cat "$R/caffeine.pid")" 2>/dev/null; then rm -f "$R/caffeine.pid"
@@ -66,9 +68,9 @@ case $cmd in
                   [[ -f $R/caffeine.pid ]] && kill -0 "$(cat "$R/caffeine.pid")" 2>/dev/null && echo true || echo false ;;
   nightlight)     read -r _ temp < "$DIR/.generated/nightlight" 2>/dev/null
                   pkill -x hyprsunset || setsid -f hyprsunset -t "${temp:-4000}" >/dev/null 2>&1 ;;
-  bluetooth)      # swaync toggle: $SWAYNC_TOGGLE_STATE = wanted state. bluetoothctl hangs without bluetoothd
+  bluetooth)      # control center toggle: $1 = on | off. bluetoothctl hangs without bluetoothd
                   systemctl is-active -q bluetooth || exit 0
-                  [[ ${SWAYNC_TOGGLE_STATE:-} == true ]] && exec timeout 2 bluetoothctl power on >/dev/null
+                  [[ ${1:-} == on ]] && exec timeout 2 bluetoothctl power on >/dev/null
                   exec timeout 2 bluetoothctl power off >/dev/null ;;
   bluetooth-state) systemctl is-active -q bluetooth && timeout 1 bluetoothctl show 2>/dev/null | grep -q "Powered: yes" \
                      && echo true || echo false ;;
@@ -78,8 +80,7 @@ case $cmd in
                     --method org.gtk.Actions.Activate toggle "[]" "{}" >/dev/null 2>&1 && exit 0
                   exec "$DIR/bin/hyprminimal-settings" ;;
   errors)         # bar error pill: open Settings on the page of the first failed part
-                  declare -A P=([waybar]=bar [swaync]=notifications [swayosd-server]=system
-                                [settings]=general)
+                  declare -A P=([waybar]=bar [panels]=notifications [settings]=general)
                   page=general
                   for f in "${XDG_RUNTIME_DIR:-/tmp}"/hyprminimal/errors/*; do [[ -f $f ]] && { page=${P[${f##*/}]:-general}; break; }; done
                   exec "$DIR/bin/hyprminimal-settings" --page "$page" ;;

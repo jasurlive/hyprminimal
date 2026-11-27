@@ -3,10 +3,7 @@
 # Fast path: if the app is already running (it stays resident, hidden, for 10 min after closing),
 # ask it over D-Bus to show the page: ~10 ms instead of starting Python + GTK.
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-if [[ $1 == --panel && $2 =~ ^[a-z]+$ ]]; then
-  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-    --method org.gtk.Actions.Activate panel "[<'$2'>]" "{}" >/dev/null 2>&1 && exit 0
-elif [[ $1 != --apply && $1 != --toggle-bar && $1 != --preload && $1 != -h && $1 != --help ]]; then
+if [[ $1 != --apply && $1 != --toggle-bar && $1 != --preload && $1 != -h && $1 != --help ]]; then
   page=last   # no --page: reopen on the page shown last
   [[ $1 == --page && -n ${2:-} ]] && page=$2
   [[ $page =~ ^[a-z]+$ ]] || page=last
@@ -16,7 +13,4 @@ fi
 # software rendering: the GPU renderers load the whole GL/Vulkan driver stack (~210 MB RSS vs ~110 MB) for a
 # window that is mostly still; showing it is a move anyway (see PARK). GSK_RENDERER in the environment wins.
 export GSK_RENDERER=${GSK_RENDERER:-cairo}
-# layer-shell must be loaded before libwayland for the bar popups to attach to the screen edge
-LS=/usr/lib/libgtk4-layer-shell.so
-[[ -e $LS ]] && export LD_PRELOAD="$LS${LD_PRELOAD:+:$LD_PRELOAD}"
 exec python3 -I "$DIR/settings/hyprminimal_settings.py" "$@"

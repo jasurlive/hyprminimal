@@ -1,27 +1,31 @@
 // pkg-config: gtk4-layer-shell-0 gtk4
-// hyprminimal bar popups: calendar (clock), battery, network, system. One small resident GTK4 program,
-// built by bin/hyprminimal into .generated/bin/panels and started hidden by `hyprminimal start`.
-// Replaces the Python panels that kept the whole Settings app (~110 MB) resident: this costs a few MB,
-// reads /proc and /sys directly, and only shells out for nmcli (network panel) and the hotspot
-// (settings/nm.py), off the UI thread.
-//
-// Also owns the desktop background (theme colour + Arch logo, replaces a wallpaper program), the clock
-// click strip on the bar (.generated/clock_zone.json), the click-outside catcher for rofi popups and the
-// Hyprland event watch that closes the control center on a workspace switch (was workspace-watch).
-// Theme: .generated/panels.css (written by `hyprminimal-settings --apply`), reloaded live.
+// hyprminimal's resident GTK4 program: everything on screen except the bar and the Settings window.
+// Built by bin/hyprminimal into .generated/bin/panels; a component of `hyprminimal start` (the watchdog
+// restarts it). Software rendering, reads /proc and /sys directly; nmcli, wpctl and the hotspot helper
+// (settings/nm.py) run off the UI thread.
+//   bar popups: calendar (clock), battery, network, Wi-Fi list, system; launcher (Super+R), session menu
+//   control center (Super+S) and the notification daemon (helpers/panels/control.c, notify.c; was swaync)
+//   volume / brightness OSD (helpers/panels/osd.c; was swayosd)
+//   desktop background (theme colour + Arch logo), the clock click strip on the bar
+//   (.generated/clock_zone.json), the click-outside catcher for rofi popups, and the Hyprland event watch
+//   that closes the control center on a workspace switch
+// Theme: .generated/panels.css (written by `hyprminimal-settings --apply`), reloaded live; popup position
+// and timeout: .generated/notify.conf.
 // D-Bus (org.gtk.Actions on dev.hyprminimal.Panels, /dev/hyprminimal/Panels), used by bin/hyprminimal-msg:
-//   panel s       toggle a popup: calendar | battery | network | system | launcher | session
+//   panel s       toggle a popup: calendar | battery | network | wifi | system | launcher | session | control
 //   panel-close   close the open popup (Hyprland, on a click outside it)
 //   catch s       a rofi popup is open (its process name; "" = it closed): outside clicks close it
+//   osd s         volume:+N | volume:-N | volume:mute | brightness:+N | brightness:-N
+//   dnd s         on | off | toggle (Do not disturb)
 //   quit
-// The launcher (Super+R) and session menu live here too: shown, not started, so they open in one frame
-// (rofi took ~100 ms per key press). rofi stays the fallback when this program isn't running.
-// The Wi-Fi network list (control center ›) and the Settings window stay in Python (settings/), on demand.
+// It also owns org.freedesktop.Notifications (notify-send and every app's notifications).
 #define _GNU_SOURCE
 #include <gtk/gtk.h>
 #include <gtk4-layer-shell.h>
 #include <gio/gunixsocketaddress.h>
+#include <glib/gstdio.h>
 #include <math.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,6 +95,13 @@ static void pointerize(GtkWidget *w) {
     for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) pointerize(c);
 }
 
+static GtkWidget *keycap(const char *k) {   // small keycap like the Super+S toggles' (.key-hint)
+    GtkWidget *c = lbl(k, "key-hint", 0.5);
+    gtk_widget_set_valign(c, GTK_ALIGN_CENTER);
+    gtk_widget_set_can_target(c, FALSE);
+    return c;
+}
+
 // key/value grid: "IP address ........ 192.168.1.4"
 static GtkWidget *kv_grid(const char *const *keys, GtkWidget **vals, int n) {
     GtkWidget *g = gtk_grid_new();
@@ -142,33 +153,6 @@ static char *cmd_out(int timeout_s, const char *first, ...) {
         return NULL;
     if (out) g_strchomp(out);
     return out;
-}
-
-// fire-and-forget D-Bus call that never starts a service (the target may simply not be running)
-static void dbus_poke(GBusType bus, const char *dest, const char *path, const char *iface, const char *method,
-                      GVariant *params) {
-    GDBusConnection *c = g_bus_get_sync(bus, NULL, NULL);
-    if (!c) { if (params) g_variant_unref(g_variant_ref_sink(params)); return; }
-    g_dbus_connection_call(c, dest, path, iface, method, params, NULL, G_DBUS_CALL_FLAGS_NO_AUTO_START, 2000,
-                           NULL, NULL, NULL);
-    g_object_unref(c);
-}
-
-static GVariant *gtk_action(const char *name, GVariant *param) {
-    GVariantBuilder av;
-    g_variant_builder_init(&av, G_VARIANT_TYPE("av"));
-    if (param) g_variant_builder_add(&av, "v", param);
-    return g_variant_new("(sava{sv})", name, &av, NULL);
-}
-
-static void hide_control_center(void) {   // one popup at a time: never on top of the Super+S control center
-    dbus_poke(G_BUS_TYPE_SESSION, "org.erikreider.swaync.cc", "/org/erikreider/swaync/cc",
-              "org.erikreider.swaync.cc", "SetVisibility", g_variant_new("(b)", FALSE));
-}
-
-static void close_python_panel(void) {    // nor on top of the Wi-Fi list (settings/panels.py)
-    dbus_poke(G_BUS_TYPE_SESSION, "dev.hyprminimal.Settings", "/dev/hyprminimal/Settings", "org.gtk.Actions",
-              "Activate", gtk_action("panel-close", NULL));
 }
 
 static void spawn_detached(const char *const *argv) {
@@ -871,6 +855,9 @@ static void on_net_settings(GtkButton *b, gpointer d) {
     g_free(bin);
 }
 
+static void manager_toggle(const char *kind);
+static void on_net_list(GtkButton *b, gpointer d) { (void)b; (void)d; manager_toggle("wifi"); }
+
 static void net_build(Panel *p, GtkWidget *body) {
     (void)p;
     gtk_widget_add_css_class(body, "compact");
@@ -890,6 +877,7 @@ static void net_build(Panel *p, GtkWidget *body) {
     gtk_box_append(GTK_BOX(top), N.icon);
     gtk_box_append(GTK_BOX(top), col);
     gtk_box_append(GTK_BOX(top), N.sw);
+    gtk_box_append(GTK_BOX(top), keycap("W"));
     gtk_box_append(GTK_BOX(body), top);
 
     // live speed: two small tiles, fixed-width digits so they don't wobble
@@ -950,14 +938,35 @@ static void net_build(Panel *p, GtkWidget *body) {
     gtk_box_append(GTK_BOX(N.hs_card), hi);
     gtk_box_append(GTK_BOX(N.hs_card), hcol);
     gtk_box_append(GTK_BOX(N.hs_card), N.hs_sw);
+    gtk_box_append(GTK_BOX(N.hs_card), keycap("H"));
     gtk_box_append(GTK_BOX(body), N.hs_card);
 
     static const char *keys[] = {"IP address", "Gateway"};
     gtk_box_append(GTK_BOX(body), kv_grid(keys, N.v, 2));
+    GtkWidget *links = HBOX(8, NULL), *nets = gtk_button_new(), *nrow = HBOX(8, NULL);
+    gtk_box_append(GTK_BOX(nrow), lbl("Wi-Fi networks", NULL, 0));
+    gtk_box_append(GTK_BOX(nrow), keycap("N"));
+    gtk_button_set_child(GTK_BUTTON(nets), nrow);
+    gtk_widget_add_css_class(nets, "link-btn");
+    g_signal_connect(nets, "clicked", G_CALLBACK(on_net_list), NULL);
     GtkWidget *s = gtk_button_new_with_label("Network settings…");
     gtk_widget_add_css_class(s, "link-btn");
+    gtk_widget_set_hexpand(s, TRUE);
+    gtk_widget_set_halign(s, GTK_ALIGN_END);
     g_signal_connect(s, "clicked", G_CALLBACK(on_net_settings), NULL);
-    gtk_box_append(GTK_BOX(body), s);
+    gtk_box_append(GTK_BOX(links), nets);
+    gtk_box_append(GTK_BOX(links), s);
+    gtk_box_append(GTK_BOX(body), links);
+}
+
+// W: Wi-Fi on/off, H: hotspot on/off (when the adapter has one), N: the list of Wi-Fi networks
+static gboolean net_key(Panel *p, guint kv) {
+    (void)p;
+    GtkWidget *sw = kv == GDK_KEY_w ? N.sw : kv == GDK_KEY_h ? N.hs_sw : NULL;
+    if (kv == GDK_KEY_n) { on_net_list(NULL, NULL); return TRUE; }
+    if (!sw || !gtk_widget_get_visible(gtk_widget_get_parent(sw)) || !gtk_widget_get_sensitive(sw)) return FALSE;
+    gtk_switch_set_active(GTK_SWITCH(sw), !gtk_switch_get_active(GTK_SWITCH(sw)));
+    return TRUE;
 }
 
 static void net_opened(Panel *p) {
@@ -988,7 +997,431 @@ static void net_refresh(Panel *p) {
 }
 
 static Panel network = {.kind = "network", .width = 360, .interval_ms = 1000, .build = net_build,
-                        .opened = net_opened, .closed = net_closed, .refresh = net_refresh};
+                        .opened = net_opened, .closed = net_closed, .refresh = net_refresh, .key = net_key};
+
+// --------------------------------------------------------------------------- Wi-Fi networks (control center ›)
+// Nearby networks: click a saved or open one to join it; a new secured one asks for its password inline.
+// R scans again, W switches Wi-Fi on/off. The password goes to nmcli on stdin (--ask), never in argv,
+// where any user could read it with ps while nmcli runs.
+typedef struct { char *ssid, *uuid; int signal; gboolean secure, inuse; } WNet;
+typedef struct { gboolean ok, radio; GPtrArray *nets; } WScan;
+typedef struct { char *ssid, *uuid, *pw; } WJoin;
+typedef struct { gboolean ok; char *err; } WResult;
+
+static struct {
+    GtkWidget *scan, *sw, *status, *list;
+    gboolean sync, busy, scanning, loading;
+    guint gen, later;
+} W;
+
+static void wnet_free(gpointer d) {
+    WNet *n = d;
+    g_free(n->ssid); g_free(n->uuid);
+    g_free(n);
+}
+
+static void wscan_free(gpointer d) {
+    WScan *s = d;
+    if (s->nets) g_ptr_array_unref(s->nets);
+    g_free(s);
+}
+
+static void wjoin_free(gpointer d) {
+    WJoin *j = d;
+    if (j->pw) explicit_bzero(j->pw, strlen(j->pw));
+    g_free(j->ssid); g_free(j->uuid); g_free(j->pw);
+    g_free(j);
+}
+
+static void wres_free(gpointer d) {
+    WResult *r = d;
+    g_free(r->err);
+    g_free(r);
+}
+
+// one line of `nmcli -t` output: fields split on ':', with nmcli's \: and \\ escapes undone
+static char **split_terse(const char *line) {
+    GPtrArray *f = g_ptr_array_new();
+    GString *cur = g_string_new(NULL);
+    for (const char *c = line; *c; c++) {
+        if (*c == '\\' && c[1]) g_string_append_c(cur, *++c);
+        else if (*c == ':') { g_ptr_array_add(f, g_string_free(cur, FALSE)); cur = g_string_new(NULL); }
+        else g_string_append_c(cur, *c);
+    }
+    g_ptr_array_add(f, g_string_free(cur, FALSE));
+    g_ptr_array_add(f, NULL);
+    return (char **)g_ptr_array_free(f, FALSE);
+}
+
+// run argv (searched in PATH) with an optional stdin text; TRUE when it exited 0. Worker threads only.
+static gboolean run_with_input(char **argv, const char *input, char **out, char **err) {
+    GSubprocessFlags fl = G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE |
+                          (input ? G_SUBPROCESS_FLAGS_STDIN_PIPE : 0);
+    GError *e = NULL;
+    GSubprocess *p = g_subprocess_newv((const char *const *)argv, fl, &e);
+    if (!p) {
+        if (err) *err = g_strdup(e->message);
+        g_error_free(e);
+        return FALSE;
+    }
+    char *o = NULL, *r = NULL;
+    gboolean ok = g_subprocess_communicate_utf8(p, input, NULL, &o, &r, NULL) && g_subprocess_get_if_exited(p) &&
+                  g_subprocess_get_exit_status(p) == 0;
+    g_object_unref(p);
+    if (out) *out = o; else g_free(o);
+    if (err) *err = r; else g_free(r);
+    return ok;
+}
+
+static gint wnet_cmp(gconstpointer a, gconstpointer b) {
+    const WNet *x = *(WNet *const *)a, *y = *(WNet *const *)b;
+    if (x->inuse != y->inuse) return x->inuse ? -1 : 1;
+    return y->signal - x->signal;
+}
+
+// worker thread: radio state, saved Wi-Fi profiles (SSID -> uuid), then the scan list
+static void wifi_scan_work(GTask *t, gpointer s, gpointer d, GCancellable *c) {
+    (void)s; (void)c;
+    gboolean rescan = GPOINTER_TO_INT(d);
+    WScan *r = g_new0(WScan, 1);
+    r->nets = g_ptr_array_new_with_free_func(wnet_free);
+    char *radio = cmd_out(6, "nmcli", "radio", "wifi", NULL);
+    r->ok = radio != NULL;
+    r->radio = radio && strcmp(radio, "enabled") == 0;
+    g_free(radio);
+    GHashTable *saved = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    GPtrArray *argv = g_ptr_array_new_with_free_func(g_free);
+    char *conns = cmd_out(6, "nmcli", "-t", "-f", "UUID,TYPE", "connection", "show", NULL);
+    const char *head[] = {"timeout", "6", "nmcli", "-t", "-g", "connection.uuid,802-11-wireless.ssid,802-11-wireless.mode",
+                          "connection", "show"};
+    for (size_t i = 0; i < G_N_ELEMENTS(head); i++) g_ptr_array_add(argv, g_strdup(head[i]));
+    guint fixed = argv->len;
+    char **cl = g_strsplit(conns ? conns : "", "\n", -1);
+    for (char **x = cl; *x; x++) {
+        char **f = split_terse(*x);
+        if (g_strv_length(f) >= 2 && strcmp(f[1], "802-11-wireless") == 0) g_ptr_array_add(argv, g_strdup(f[0]));
+        g_strfreev(f);
+    }
+    g_strfreev(cl);
+    g_free(conns);
+    if (argv->len > fixed) {
+        g_ptr_array_add(argv, NULL);
+        char *out = NULL;
+        run_with_input((char **)argv->pdata, NULL, &out, NULL);
+        char **blocks = g_strsplit(out ? out : "", "\n\n", -1);
+        for (char **b = blocks; *b; b++) {
+            char **ln = g_strsplit(*b, "\n", 3);
+            guint n = g_strv_length(ln);
+            // hotspot profiles (mode ap) aren't networks to join
+            if (n >= 2 && *ln[0] && (n < 3 || strcmp(ln[2], "ap") != 0) && !g_hash_table_contains(saved, ln[1]))
+                g_hash_table_insert(saved, g_strdup(ln[1]), g_strdup(ln[0]));
+            g_strfreev(ln);
+        }
+        g_strfreev(blocks);
+        g_free(out);
+    }
+    g_ptr_array_unref(argv);
+    if (r->radio) {
+        char *out = cmd_out(25, "nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list",
+                            "--rescan", rescan ? "yes" : "auto", NULL);
+        GHashTable *by = g_hash_table_new(g_str_hash, g_str_equal);   // ssid -> WNet (owned by r->nets)
+        char **l = g_strsplit(out ? out : "", "\n", -1);
+        for (char **x = l; *x; x++) {
+            char **f = split_terse(*x);
+            if (g_strv_length(f) >= 4 && *f[1]) {
+                gboolean inuse = strcmp(f[0], "*") == 0;
+                int sig = atoi(f[2]);
+                WNet *old = g_hash_table_lookup(by, f[1]);
+                if (!old || (inuse && !old->inuse) || (sig > old->signal && !old->inuse)) {
+                    WNet *n = old ? old : g_new0(WNet, 1);
+                    if (!old) {
+                        n->ssid = g_strdup(f[1]);
+                        n->uuid = g_strdup(g_hash_table_lookup(saved, f[1]));
+                        g_ptr_array_add(r->nets, n);
+                        g_hash_table_insert(by, n->ssid, n);
+                    }
+                    n->signal = sig;
+                    n->inuse = inuse || (old && old->inuse);
+                    char *sec = g_strstrip(f[3]);
+                    n->secure = *sec && strcmp(sec, "--") != 0;
+                }
+            }
+            g_strfreev(f);
+        }
+        g_strfreev(l);
+        g_free(out);
+        g_hash_table_unref(by);
+        g_ptr_array_sort(r->nets, wnet_cmp);
+    }
+    g_hash_table_unref(saved);
+    g_task_return_pointer(t, r, wscan_free);
+}
+
+static void wifi_status(const char *text) {
+    gtk_label_set_label(GTK_LABEL(W.status), text ? text : "");
+    gtk_widget_set_visible(W.status, text && *text);
+}
+
+static void wifi_join(WNet *n, const char *pw);
+
+static void on_pw_activate(GtkWidget *e, gpointer row) {
+    WNet *n = g_object_get_data(row, "net");
+    const char *pw = gtk_editable_get_text(GTK_EDITABLE(e));
+    if (n && pw && *pw) wifi_join(n, pw);
+}
+
+static GtkWidget *wifi_row(WNet *src) {
+    WNet *n = g_new0(WNet, 1);
+    *n = *src;
+    n->ssid = g_strdup(src->ssid);
+    n->uuid = g_strdup(src->uuid);
+    GtkWidget *row = gtk_list_box_row_new();
+    g_object_set_data_full(G_OBJECT(row), "net", n, wnet_free);
+    gtk_widget_set_cursor_from_name(row, "pointer");
+    GtkWidget *col = VBOX(0, NULL), *top = HBOX(12, NULL);
+    static const char *sig[] = {"\U000f092f", "\U000f091f", "\U000f0922", "\U000f0925", "\U000f0928"};
+    GtkWidget *g = lbl(sig[MIN(4, MAX(0, n->signal) / 20)], "sig", 0);
+    gtk_widget_set_valign(g, GTK_ALIGN_CENTER);
+    gtk_box_append(GTK_BOX(top), g);
+    GtkWidget *name = lbl(n->ssid, "net-name", 0);
+    gtk_widget_set_hexpand(name, TRUE);
+    gtk_box_append(GTK_BOX(top), name);
+    const char *tag = n->inuse ? "Connected" : n->uuid ? "Saved" : NULL;
+    if (tag) {
+        GtkWidget *tl = lbl(tag, "muted caption", 0);
+        gtk_widget_set_valign(tl, GTK_ALIGN_CENTER);
+        gtk_box_append(GTK_BOX(top), tl);
+    }
+    if (n->secure) {
+        GtkWidget *lk = lbl("\U000f033e", "icon-sm lock", 0);
+        gtk_widget_set_valign(lk, GTK_ALIGN_CENTER);
+        gtk_box_append(GTK_BOX(top), lk);
+    }
+    gtk_box_append(GTK_BOX(col), top);
+    if (n->secure && !n->uuid && !n->inuse) {   // new secured network: password field, shown on click
+        GtkWidget *pw = gtk_password_entry_new();
+        gtk_password_entry_set_show_peek_icon(GTK_PASSWORD_ENTRY(pw), TRUE);
+        g_object_set(pw, "placeholder-text", "Password, then Enter", NULL);
+        gtk_widget_add_css_class(pw, "wifi-pw");
+        g_signal_connect(pw, "activate", G_CALLBACK(on_pw_activate), row);
+        gtk_widget_set_visible(pw, FALSE);
+        gtk_box_append(GTK_BOX(col), pw);
+        g_object_set_data(G_OBJECT(row), "pw", pw);
+    }
+    if (n->inuse) gtk_widget_add_css_class(row, "on");
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(row), col);
+    return row;
+}
+
+static void wifi_scan_button(gboolean busy) {
+    W.scanning = busy;
+    gtk_widget_set_sensitive(W.scan, !busy);
+    gtk_button_set_label(GTK_BUTTON(W.scan), busy ? "• • •" : "\U000f0450");
+    gtk_widget_set_tooltip_text(W.scan, busy ? "Scanning…" : "Scan again (R)");
+}
+
+static void wifi_show(WScan *r) {
+    if (!r->ok) { wifi_status("Couldn't read networks from NetworkManager."); return; }
+    W.sync = TRUE;
+    gtk_switch_set_active(GTK_SWITCH(W.sw), r->radio);
+    W.sync = FALSE;
+    if (!W.busy) wifi_status(!r->radio ? "Wi-Fi is off" : r->nets->len ? NULL : "No networks found");
+    gtk_list_box_remove_all(GTK_LIST_BOX(W.list));
+    for (guint i = 0; i < MIN(r->nets->len, 15); i++)
+        gtk_list_box_append(GTK_LIST_BOX(W.list), wifi_row(g_ptr_array_index(r->nets, i)));
+    gtk_widget_set_visible(W.list, r->nets->len > 0);
+}
+
+static void wifi_scan_done(GObject *src, GAsyncResult *res, gpointer data) {
+    (void)src;
+    WScan *r = g_task_propagate_pointer(G_TASK(res), NULL);
+    gboolean rescan = GPOINTER_TO_INT(g_task_get_task_data(G_TASK(res)));
+    if (rescan) wifi_scan_button(FALSE); else W.loading = FALSE;
+    if (r && GPOINTER_TO_UINT(data) == W.gen) wifi_show(r);
+    if (r) wscan_free(r);
+}
+
+static void wifi_load(gboolean rescan) {
+    if (rescan ? W.scanning : W.loading) return;   // single-flight: a slow NetworkManager never piles up nmcli
+    if (rescan) wifi_scan_button(TRUE); else W.loading = TRUE;
+    GTask *t = g_task_new(NULL, NULL, wifi_scan_done, GUINT_TO_POINTER(W.gen));
+    g_task_set_task_data(t, GINT_TO_POINTER(rescan), NULL);
+    g_task_run_in_thread(t, wifi_scan_work);
+    g_object_unref(t);
+}
+
+static gboolean wifi_load_later(gpointer d) { W.later = 0; wifi_load(GPOINTER_TO_INT(d)); return G_SOURCE_REMOVE; }
+
+static void wifi_load_in(guint ms, gboolean rescan) {
+    if (W.later) g_source_remove(W.later);
+    W.later = g_timeout_add(ms, wifi_load_later, GINT_TO_POINTER(rescan));
+}
+
+static void wifi_join_work(GTask *t, gpointer s, gpointer d, GCancellable *c) {
+    (void)s; (void)d; (void)c;
+    WJoin *j = g_task_get_task_data(t);
+    WResult *r = g_new0(WResult, 1);
+    char *err = NULL, *input = NULL;
+    if (j->uuid && !j->pw) {
+        char *argv[] = {"timeout", "40", "nmcli", "connection", "up", j->uuid, NULL};
+        r->ok = run_with_input(argv, NULL, NULL, &err);
+    } else if (j->pw) {
+        // --ask: nmcli reads the missing password from stdin ("Password: " prompt), so it is not in argv
+        char *argv[] = {"timeout", "40", "nmcli", "--ask", "device", "wifi", "connect", j->ssid, NULL};
+        input = g_strconcat(j->pw, "\n", NULL);
+        r->ok = run_with_input(argv, input, NULL, &err);
+        explicit_bzero(input, strlen(input));
+        g_free(input);
+    } else {
+        char *argv[] = {"timeout", "40", "nmcli", "device", "wifi", "connect", j->ssid, NULL};
+        r->ok = run_with_input(argv, NULL, NULL, &err);
+    }
+    if (!r->ok) {   // last non-empty line of stderr, without nmcli's "Password:" prompt
+        char **l = g_strsplit(err ? err : "", "\n", -1);
+        for (char **x = l; *x; x++) {
+            char *v = g_strstrip(*x);
+            if (g_str_has_prefix(v, "Password:")) v = g_strstrip(v + 9);
+            if (*v) { g_free(r->err); r->err = g_strndup(v, 120); }
+        }
+        g_strfreev(l);
+        if (!r->err) r->err = g_strdup("unknown error");
+    }
+    g_free(err);
+    g_task_return_pointer(t, r, wres_free);
+}
+
+static void wifi_join_done(GObject *src, GAsyncResult *res, gpointer data) {
+    (void)src;
+    WResult *r = g_task_propagate_pointer(G_TASK(res), NULL);
+    WJoin *j = g_task_get_task_data(G_TASK(res));
+    W.busy = FALSE;
+    if (GPOINTER_TO_UINT(data) == W.gen) {
+        char *s = r && r->ok ? g_strdup_printf("Connected to %s", j->ssid)
+                             : g_strdup_printf("Couldn't connect: %s", r && r->err ? r->err : "unknown error");
+        wifi_status(s);
+        g_free(s);
+        wifi_load(FALSE);
+    }
+    if (r) wres_free(r);
+}
+
+static void wifi_join(WNet *n, const char *pw) {
+    if (W.busy) return;
+    W.busy = TRUE;
+    WJoin *j = g_new0(WJoin, 1);
+    j->ssid = g_strdup(n->ssid);
+    j->uuid = pw ? NULL : g_strdup(n->uuid);
+    j->pw = pw ? g_strdup(pw) : NULL;
+    char *s = g_strdup_printf("Connecting to %s…", n->ssid);
+    wifi_status(s);
+    g_free(s);
+    GTask *t = g_task_new(NULL, NULL, wifi_join_done, GUINT_TO_POINTER(W.gen));
+    g_task_set_task_data(t, j, wjoin_free);
+    g_task_run_in_thread(t, wifi_join_work);
+    g_object_unref(t);
+}
+
+static void on_wifi_row(GtkListBox *l, GtkListBoxRow *row, gpointer d) {
+    (void)l; (void)d;
+    WNet *n = g_object_get_data(G_OBJECT(row), "net");
+    if (!n || n->inuse || W.busy) return;
+    GtkWidget *pw = g_object_get_data(G_OBJECT(row), "pw");
+    if (pw) {   // new secured network: ask for the password
+        gboolean show = !gtk_widget_get_visible(pw);
+        gtk_widget_set_visible(pw, show);
+        if (show) gtk_widget_grab_focus(pw);
+        return;
+    }
+    wifi_join(n, NULL);
+}
+
+static gboolean on_wifi_radio(GtkSwitch *sw, gboolean on, gpointer d) {
+    (void)sw; (void)d;
+    if (W.sync) return FALSE;
+    const char *argv[] = {"timeout", "5", "nmcli", "radio", "wifi", on ? "on" : "off", NULL};
+    spawn_detached(argv);
+    wifi_load_in(1500, FALSE);
+    return FALSE;
+}
+
+static void on_wifi_scan(GtkButton *b, gpointer d) { (void)b; (void)d; wifi_load(TRUE); }
+
+static gboolean typing(Panel *p) {   // a text field has the keyboard: letters are text, not shortcuts
+    GtkWidget *f = gtk_root_get_focus(GTK_ROOT(p->win));
+    return f && GTK_IS_EDITABLE(f);
+}
+
+static gboolean wifi_key(Panel *p, guint kv) {
+    if (typing(p)) return FALSE;
+    if (kv == GDK_KEY_r) { wifi_load(TRUE); return TRUE; }
+    if (kv == GDK_KEY_w) { gtk_switch_set_active(GTK_SWITCH(W.sw), !gtk_switch_get_active(GTK_SWITCH(W.sw))); return TRUE; }
+    return FALSE;
+}
+
+static void wifi_build(Panel *p, GtkWidget *body) {
+    (void)p;
+    gtk_widget_add_css_class(body, "compact");
+    GtkWidget *head = HBOX(10, NULL), *ic = lbl("\U000f05a9", "icon-sm accent", 0), *t = lbl("Wi-Fi networks", "mid", 0);
+    gtk_widget_set_valign(ic, GTK_ALIGN_CENTER);
+    gtk_widget_set_hexpand(t, TRUE);
+    gtk_box_append(GTK_BOX(head), ic);
+    gtk_box_append(GTK_BOX(head), t);
+    W.scan = gtk_button_new_with_label("\U000f0450");
+    add_classes(W.scan, "round flat-icon scan-btn");
+    gtk_widget_set_valign(W.scan, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(W.scan, "Scan again (R)");
+    g_signal_connect(W.scan, "clicked", G_CALLBACK(on_wifi_scan), NULL);
+    gtk_box_append(GTK_BOX(head), W.scan);
+    gtk_box_append(GTK_BOX(head), keycap("R"));
+    W.sw = gtk_switch_new();
+    gtk_widget_set_valign(W.sw, GTK_ALIGN_CENTER);
+    gtk_widget_set_tooltip_text(W.sw, "Wi-Fi on/off (W)");
+    g_signal_connect(W.sw, "state-set", G_CALLBACK(on_wifi_radio), NULL);
+    gtk_box_append(GTK_BOX(head), W.sw);
+    gtk_box_append(GTK_BOX(head), keycap("W"));
+    gtk_box_append(GTK_BOX(body), head);
+    W.status = lbl("", "muted caption", 0);
+    gtk_label_set_ellipsize(GTK_LABEL(W.status), PANGO_ELLIPSIZE_NONE);
+    gtk_label_set_wrap(GTK_LABEL(W.status), TRUE);
+    gtk_widget_set_visible(W.status, FALSE);
+    gtk_box_append(GTK_BOX(body), W.status);
+    W.list = gtk_list_box_new();
+    gtk_widget_add_css_class(W.list, "wifi-list");
+    gtk_list_box_set_selection_mode(GTK_LIST_BOX(W.list), GTK_SELECTION_NONE);
+    g_signal_connect(W.list, "row-activated", G_CALLBACK(on_wifi_row), NULL);
+    GtkWidget *sc = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sc), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(sc), TRUE);
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(sc), 400);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(sc), W.list);
+    gtk_box_append(GTK_BOX(body), sc);
+    GtkWidget *s = gtk_button_new_with_label("Network settings…");
+    gtk_widget_add_css_class(s, "link-btn");
+    g_signal_connect(s, "clicked", G_CALLBACK(on_net_settings), NULL);
+    gtk_box_append(GTK_BOX(body), s);
+}
+
+static void wifi_opened(Panel *p) {
+    (void)p;
+    W.gen++;
+    W.busy = FALSE;
+    wifi_status(NULL);
+    wifi_load(FALSE);               // cached list right away
+    wifi_load_in(300, TRUE);        // then a fresh scan
+}
+
+static void wifi_closed(Panel *p) {
+    (void)p;
+    W.gen++;                        // results still on their way are dropped
+    if (W.later) { g_source_remove(W.later); W.later = 0; }
+    for (GtkWidget *r = gtk_widget_get_first_child(W.list); r; r = gtk_widget_get_next_sibling(r)) {
+        GtkWidget *pw = g_object_get_data(G_OBJECT(r), "pw");   // don't keep a typed password around
+        if (pw) gtk_editable_set_text(GTK_EDITABLE(pw), "");
+    }
+}
+
+static Panel wifip = {.kind = "wifi", .width = 380, .bottom = TRUE, .build = wifi_build, .opened = wifi_opened,
+                      .closed = wifi_closed, .key = wifi_key};
 
 // --------------------------------------------------------------------------- system
 static GtkWidget *system_panel_win(void);
@@ -1763,8 +2196,13 @@ static void session_opened(Panel *p) {
 static Panel sessionp = {.kind = "session", .width = 260, .build = session_build, .opened = session_opened,
                          .key = session_key};
 
+// --------------------------------------------------------------------------- notifications, control center, OSD
+#include "panels/notify.c"
+#include "panels/control.c"
+#include "panels/osd.c"
+
 // --------------------------------------------------------------------------- manager
-static Panel *PANELS[] = {&calendar, &battery, &network, &sysp, &launcherp, &sessionp};
+static Panel *PANELS[] = {&calendar, &battery, &network, &wifip, &sysp, &launcherp, &sessionp, &ccp};
 static GtkWidget *catcher;
 static char *external;                  // a popup run as its own program (rofi): closed with pkill
 
@@ -1791,8 +2229,6 @@ static void manager_close(void) {
 
 static void manager_open(Panel *p, GdkMonitor *mon) {
     manager_close();
-    hide_control_center();
-    close_python_panel();
     if (LS) {
         // exclusive like the Super+S control center: with follow_mouse an on-demand popup loses the
         // keyboard as soon as the pointer leaves it, and Esc went to the window underneath
@@ -2054,6 +2490,8 @@ static void gen_changed(GFileMonitor *m, GFile *file, GFile *other, GFileMonitor
     } else if (!strcmp(name, "arch-logo.png") || !strcmp(name, "desktop")) {   // theme colour, name, logo
         if (bg_timer) g_source_remove(bg_timer);
         bg_timer = g_timeout_add(150, bgs_later, NULL);
+    } else if (!strcmp(name, "notify.conf")) {
+        notify_conf();
     } else if (!strcmp(name, "clock_zone.json")) {
         if (zone_timer) g_source_remove(zone_timer);
         zone_timer = g_timeout_add(600, zones_later, NULL);   // after waybar has re-laid out
@@ -2095,8 +2533,7 @@ static void hypr_line(GObject *src, GAsyncResult *res, gpointer d) {
     if (!line) { if (G_DATA_INPUT_STREAM(src) == hypr_in) hypr_drop(); return; }   // EOF or error
     if (g_str_has_prefix(line, "workspace>>") || g_str_has_prefix(line, "focusedmon>>") ||
         g_str_has_prefix(line, "openwindow>>")) {
-        hide_control_center();
-        close_python_panel();
+        if (current == &ccp || current == &wifip) manager_close();   // the control center, and the list opened from it
     }
     g_free(line);
     g_data_input_stream_read_line_async(hypr_in, G_PRIORITY_DEFAULT, NULL, hypr_line, NULL);
@@ -2125,6 +2562,12 @@ static void hypr_watch(void) {
 static void act_panel(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)d; manager_toggle(g_variant_get_string(v, NULL)); }
 static void act_close(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)v; (void)d; if (current) manager_close(); }
 static void act_catch(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)d; manager_catch(g_variant_get_string(v, NULL)); }
+static void act_osd(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)d; osd_request(g_variant_get_string(v, NULL)); }
+static void act_dnd(GSimpleAction *a, GVariant *v, gpointer d) {   // on | off | toggle
+    (void)a; (void)d;
+    const char *s = g_variant_get_string(v, NULL);
+    dnd_set(!strcmp(s, "toggle") ? !NT.dnd : !strcmp(s, "on"));
+}
 static void act_quit(GSimpleAction *a, GVariant *v, gpointer d) { (void)a; (void)v; (void)d; g_application_quit(G_APPLICATION(app)); }
 
 static void startup(GApplication *a, gpointer d) {
@@ -2139,9 +2582,11 @@ static void startup(GApplication *a, gpointer d) {
     static const GActionEntry acts[] = {
         {"panel", act_panel, "s", NULL, NULL, {0}}, {"panel-close", act_close, NULL, NULL, NULL, {0}},
         {"catch", act_catch, "s", NULL, NULL, {0}}, {"quit", act_quit, NULL, NULL, NULL, {0}},
+        {"osd", act_osd, "s", NULL, NULL, {0}}, {"dnd", act_dnd, "s", NULL, NULL, {0}},
     };
     g_action_map_add_action_entries(G_ACTION_MAP(a), acts, G_N_ELEMENTS(acts), NULL);
     for (size_t i = 0; i < G_N_ELEMENTS(PANELS); i++) panel_create(PANELS[i]);   // first click is instant
+    notify_init();
     reload_zones();
     reload_backgrounds();
     hypr_watch();

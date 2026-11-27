@@ -1,4 +1,4 @@
-/* Bar popups (helpers/panels.c and settings/panels.py). Tokyo Night Moon colours: themes.recolor()
+/* Bar popups (helpers/panels.c). Tokyo Night Moon colours: themes.recolor()
    swaps them per theme; `hyprminimal-settings --apply` writes the result to .generated/panels.css. */
 window.hyprminimal-panel { background: transparent; }
 /* desktop background (helpers/panels.c): plain theme colour, Arch logo (.generated/arch-logo.png) and wordmark */
@@ -88,3 +88,77 @@ window.hyprminimal-catcher, window.hyprminimal-clickzone { background: rgba(0, 0
 .panel list.menu .glyph { font-family: "Symbols Nerd Font"; min-width: 18px; }
 .panel list.menu > row.urgent { color: #cf8f9a; }
 .panel list.menu > row.urgent:selected { background: alpha(#cf8f9a, 0.2); color: #cf8f9a; }
+
+/* ---------- notification popups (helpers/panels/notify.c) ---------- */
+window.hyprminimal-notifications, window.hyprminimal-osd { background: transparent; }
+.notif { color: #c0caf5; }
+.notif-popups .notif {
+  background-color: #1f2335; border: 1px solid #4b517a; margin: 4px 6px;
+  background-image: linear-gradient(#7a88cf, #7a88cf); background-repeat: no-repeat;
+  background-position: left top; background-size: 0% 3px;
+}
+/* the thin bar along the top runs out with the timeout (duration: Settings → Notifications, appended below) */
+.notif-popups .notif.countdown { animation: hm-countdown 3s linear forwards; }
+@keyframes hm-countdown { from { background-size: 100% 3px; } to { background-size: 0% 3px; } }
+.notif.critical { border-color: #f7768e; }
+.notif-content { padding: 14px 16px; }
+.notif .summary { color: #c0caf5; font-size: 18px; font-weight: 700; }
+.notif .body { color: #c0caf5; font-size: 17px; }
+.notif .time { color: #737aa2; font-size: 11px; }
+.notif-image { margin-right: 4px; }
+.notif-actions { margin: 0 10px 10px 10px; }
+.notif button.notif-action { background: #2c314a; border: 1px solid #4b517a; border-radius: 0; color: #a9b1d6; padding: 4px 8px; }
+.notif button.notif-action:hover { background: #7a88cf; color: #1f2335; }
+
+/* ---------- control center (Super+S, helpers/panels/control.c) ----------
+   420px wide. [Wi-Fi | ›] [System], toggles (keys 1-7), session, media, then the notification header and list. */
+.panel.cc { padding: 12px; }
+.panel.cc button.cc-tile {
+  background: rgba(44, 49, 74, 0.55); border: 1px solid rgba(75, 81, 122, 0.7); border-radius: 12px;
+  padding: 6px 8px; min-height: 44px; color: #c0caf5;
+}
+.panel.cc button.cc-tile:hover { background: rgba(122, 136, 207, 0.22); border-color: rgba(122, 136, 207, 0.6); }
+.panel.cc button.cc-tile.on { background: #7a88cf; color: #1f2335; border-color: #7a88cf; }
+.panel.cc button.cc-tile.toggle { min-height: 50px; padding: 0 10px; }
+.panel.cc .joined button.left { border-radius: 12px 0 0 12px; }
+.panel.cc .joined button.right { border-radius: 0 12px 12px 0; border-left-width: 0; padding: 0 6px; }
+.panel.cc .tile-title { font-size: 13px; font-weight: 600; }
+.panel.cc .tile-sub { font-size: 12px; font-weight: 600; }
+.panel.cc .key-hint { font-size: 10px; font-weight: 700; min-width: 10px; padding: 1px 4px; border-radius: 4px; }
+.panel.cc button.cc-tile.on .key-hint { color: rgba(31, 35, 53, 0.8); border-color: rgba(31, 35, 53, 0.45); }
+.panel.cc button.pill {
+  min-height: 38px; border-radius: 19px; background: rgba(44, 49, 74, 0.55); border: 1px solid rgba(75, 81, 122, 0.7);
+  color: #c0caf5; font-size: 13px; font-weight: 600;
+}
+.panel.cc button.pill:hover { background: #f7768e; color: #1f2335; border-color: #f7768e; }
+.panel.cc .card.media { border-radius: 12px; padding: 8px 12px; }
+.panel.cc .art { border-radius: 8px; }
+.panel.cc .m-title { font-size: 14px; font-weight: 700; color: #c0caf5; }
+.panel.cc .m-artist { font-size: 12px; color: #a9b1d6; }
+.panel.cc .card.media button.round.flat-icon { min-width: 32px; min-height: 32px; font-size: 18px; color: #c0caf5; }
+.panel.cc .card.media button.round.flat-icon:hover { background: #7a88cf; color: #1f2335; }
+.panel.cc .notif-head { margin-top: 4px; }
+.panel.cc button.flat-row {
+  background: none; border: none; box-shadow: none; min-height: 28px; padding: 0 8px; border-radius: 8px;
+  font-size: 13px; font-weight: 700; color: #c0caf5;
+}
+.panel.cc button.flat-row.outlined { border: 1px solid rgba(75, 81, 122, 0.7); font-weight: 600; }
+.panel.cc button.flat-row:hover { background: rgba(122, 136, 207, 0.22); }
+.panel.cc button.flat-row:disabled { opacity: 0.5; }
+.panel.cc .cc-list .notif { background-color: rgba(44, 49, 74, 0.6); border: 1px solid rgba(75, 81, 122, 0.7); border-radius: 12px; }
+.panel.cc .cc-list .notif-content { padding: 12px 14px; }
+.panel.cc .cc-list .summary { font-size: 14px; }
+.panel.cc .cc-list .body { font-size: 13px; }
+.panel.cc .cc-list button.notif-action { border-radius: 8px; }
+.panel.cc scrollbar, .panel.cc scrollbar trough { background: none; border: none; box-shadow: none; }
+.panel.cc scrollbar slider { min-width: 4px; min-height: 24px; margin: 0; border: none; border-radius: 4px; background: rgba(75, 81, 122, 0.8); }
+
+/* ---------- volume / brightness OSD (helpers/panels/osd.c): square box under the bar ---------- */
+.hm-osd { background: #1f2335; border: 1px solid #4b517a; padding: 14px 22px; }
+.osd-icon { font-family: "Symbols Nerd Font"; font-size: 24px; color: #7a88cf; min-width: 28px; }
+.osd-val { color: #c0caf5; font-size: 16px; font-weight: 600; min-width: 36px; }
+.hm-osd levelbar trough { min-height: 8px; background: #2c314a; border: none; border-radius: 0; padding: 0; }
+.hm-osd levelbar block { border: none; box-shadow: none; background-image: none; border-radius: 0; min-height: 8px; }
+.hm-osd levelbar block.filled { background: #7a88cf; }
+.hm-osd levelbar block.empty { background: transparent; }
+window.hyprminimal-osd.muted .osd-icon, window.hyprminimal-osd.muted levelbar { opacity: 0.5; }

@@ -47,11 +47,9 @@ The ones to learn first. **All shortcuts: [KEYBINDINGS.md](KEYBINDINGS.md)**, or
 | Part | Program | Config |
 |---|---|---|
 | Bar | waybar | `waybar/` |
-| Notifications | swaync | `swaync/` |
-| OSD | swayosd | `swayosd/` |
-| Launcher, session menu | rofi | `rofi/` |
+| Popups, control center, notifications, OSD, launcher, session menu | C helper (GTK4) | `helpers/panels.c`, `helpers/panels/`, `settings/panels.css` |
+| Launcher, session menu fallback | rofi | `rofi/` |
 | Lock | hyprlock | `hyprlock/` |
-| Bar popups | C helper | `helpers/panels.c` |
 | Settings | hyprminimal-settings | `settings/`, `settings.json` |
 
 Keybind edits are backed up to `~/.config/hypr/.pre-hyprminimal-backup/`.

@@ -97,6 +97,16 @@ These work on the lock screen too. Volume and brightness step 1% per tap and spe
 | K | Play / pause |
 | C | Clear all notifications |
 
+## Inside the bar popups
+
+Each key is shown as a keycap next to what it does. Esc closes any popup.
+
+| Popup | Keys |
+|---|---|
+| Network (Super+W) | W Wi-Fi on/off · H hotspot on/off · N list of Wi-Fi networks |
+| Wi-Fi networks (control center ›, or N) | R scan again · W Wi-Fi on/off |
+| Battery (Super+P) | S Power Saver · B Balanced · P Performance |
+
 ## Mouse
 
 Clicking anywhere outside an open bar popup closes it.

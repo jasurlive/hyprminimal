@@ -1,7 +1,0 @@
-# hyprminimal SwayOSD (volume / brightness pop-up)
-[server]
-show_percentage = true     # the number on the right
-top_margin = 0.145         # just under the bar: (bar 53px + osd 70px) / 864
-max_volume = 100
-min_brightness = 0         # allow going all the way down (0% can mean a black screen on some panels)
-keyboard_backlight = true

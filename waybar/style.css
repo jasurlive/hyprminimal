@@ -61,8 +61,8 @@ tooltip label { color: @on_surface_var; }
 #battery.charging, #battery.plugged { color: @state_charge; }
 #battery.warning:not(.charging)  { color: @state_low; }
 #battery.critical:not(.charging) { color: @state_low; }
-#network, #custom-net { color: @on_surface; }
-#custom-net.offline { color: @outline; }
+#network { color: @on_surface; }
+#network.speed.disconnected { color: @outline; }
 
 /* optional widgets */
 #pulseaudio, #network.wifi, #bluetooth, #tray { color: @on_surface; }

@@ -1,7 +1,7 @@
 -- hyprminimal: shell layers (bar, popups, notifications, OSD, launcher). No blur: every surface is solid.
 -- Animations are off globally (animations.lua); no_anim keeps popups instant even if you turn them back on.
 -- Loaded from ~/.config/hypr/hyprland.lua (dofile); harmless when hyprminimal isn't running.
-for name, ns in pairs({ cc = "^swaync-control-center$", notif = "^swaync-notification-window$", osd = "^swayosd$",
+for name, ns in pairs({ notif = "^hyprminimal-notifications$", osd = "^hyprminimal-osd$",
                         rofi = "^rofi$", panel = "^hyprminimal-panel$" }) do
     hl.layer_rule({ name = "hyprminimal-" .. name, match = { namespace = ns }, no_anim = true })
 end
@@ -40,7 +40,7 @@ end
 -- Settings closes like a popup on a click outside it. Not on clicks in its own dialogs (file and
 -- font pickers are separate windows of the same process), the bar, or hyprminimal's popups.
 local SHELL_LAYERS = { waybar = true, ["hyprminimal-panel"] = true, rofi = true,
-                       ["swaync-control-center"] = true, ["swaync-notification-window"] = true }
+                       ["hyprminimal-notifications"] = true }
 local function settings_click(p)
     local s = open_settings()
     if not s or win_inside(s, p) then return end
