@@ -3,7 +3,7 @@
 Hyprland theme for endless typing and coding.
 No wallpaper, no blur, no animations. Official Arch packages only.
 
-<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/62f3eec3-b9be-4a82-b8e4-9e8d4b430a98" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/748b03a2-a375-4b7c-89e7-4a4d3684be53" />
 
 ## Install
 
