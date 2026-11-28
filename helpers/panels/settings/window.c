@@ -494,7 +494,7 @@ static GtkWidget *page_notifications(void) {
     GtkWidget *sw = switch_row(g2, "Do not disturb", "Hide popups; notifications still go to the control center", NT.dnd);
     g_signal_connect(sw, "notify::active", G_CALLBACK(dnd_switched), NULL);
     GtkWidget *r = row_add(g2, "Send a test notification", NULL), *b = text_btn("Test", "hm-btn pill");
-    g_signal_connect_swapped(b, "clicked", G_CALLBACK(test_notification), NULL);
+    gtk_widget_set_can_target(b, FALSE);   // the whole row is the button, like System's action rows
     row_suffix(r, b);
     row_on_activate(r, test_notification, NULL);
     return sc;
@@ -563,12 +563,11 @@ static void su_edit(GtkWidget *e, gpointer d) {
     g_free(c);
 }
 
-static void su_switched(GtkSwitch *sw, GParamSpec *ps, gpointer row) {
-    (void)ps;
+static void su_switched(GtkSwitch *sw, GParamSpec *ps, gpointer d) {
+    (void)ps; (void)d;
     JsonObject *o = su_item(GTK_WIDGET(sw));
     if (!o) return;
     json_object_set_boolean_member(o, "enabled", gtk_switch_get_active(sw));
-    row_set_title(row, gtk_switch_get_active(sw) ? "Runs at login" : "Off");
     changed(CH_STARTUP);
 }
 
@@ -609,8 +608,8 @@ static void su_fill(void) {
         if (!JSON_NODE_HOLDS_OBJECT(node)) continue;
         JsonObject *o = json_node_get_object(node);
         gboolean on = !json_object_has_member(o, "enabled") || json_object_get_boolean_member(o, "enabled");
-        GtkWidget *row, *e = entry_row_full(SU.list, on ? "Runs at login" : "Off",
-                                            json_object_get_string_member_with_default(o, "command", ""), FALSE, su_edit, NULL, &row);
+        GtkWidget *row, *e = entry_row_full(SU.list, NULL, json_object_get_string_member_with_default(o, "command", ""), FALSE,
+                                            su_edit, NULL, &row);
         GtkWidget *sw = gtk_switch_new(), *run = icon_btn("media-playback-start-symbolic", "Run now");
         GtkWidget *rm = icon_btn("user-trash-symbolic", "Remove");
         gtk_switch_set_active(GTK_SWITCH(sw), on);
@@ -619,7 +618,7 @@ static void su_fill(void) {
         gtk_widget_set_cursor_from_name(sw, "pointer");
         for (GtkWidget *const *w = (GtkWidget *const[]){e, sw, rm, NULL}; *w; w++)
             g_object_set_data(G_OBJECT(*w), "hm-index", GUINT_TO_POINTER(i));
-        g_signal_connect(sw, "notify::active", G_CALLBACK(su_switched), row);
+        g_signal_connect(sw, "notify::active", G_CALLBACK(su_switched), NULL);
         g_signal_connect(run, "clicked", G_CALLBACK(su_run), e);
         g_signal_connect(rm, "clicked", G_CALLBACK(su_remove), NULL);
         row_prefix(row, sw);
@@ -633,7 +632,8 @@ static GtkWidget *page_startup(void) {
     GtkWidget *ga = group_new(p, "Add", "Anything you would type in a terminal: an app (telegram-desktop), a script "
                                         "(~/bin/sync.sh) or a shell line (sleep 5 &amp;&amp; discord).");
     GtkWidget *row;
-    SU.add = entry_row_full(ga, "Command or script", "", FALSE, su_add_apply, NULL, &row);
+    SU.add = entry_row_full(ga, NULL, "", FALSE, su_add_apply, NULL, &row);
+    gtk_entry_set_placeholder_text(GTK_ENTRY(SU.add), "Command or script");
     GtkWidget *ok = g_object_get_data(G_OBJECT(SU.add), "hm-ok");
     gtk_widget_unparent(ok);   // the + button adds instead
     g_object_set_data(G_OBJECT(SU.add), "hm-ok", NULL);

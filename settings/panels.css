@@ -172,7 +172,8 @@ window.hm-settings .hm-title { font-size: 26px; font-weight: 800; color: #9aa5e0
 window.hm-settings list.hm-nav { background: transparent; }
 window.hm-settings list.hm-nav > row { padding: 13px 16px; margin: 2px 0; border-radius: 8px; color: #a9b1d6; font-size: 17px; }
 window.hm-settings list.hm-nav > row image { color: #7a88cf; -gtk-icon-size: 20px; margin-right: 4px; }
-window.hm-settings list.hm-nav > row:hover { background: rgba(122, 136, 207, 0.15); color: #c0caf5; }
+window.hm-settings list.hm-nav > row:hover { background: rgba(122, 136, 207, 0.10); color: #c0caf5; }
+window.hm-settings list.hm-nav > row:active { background: rgba(122, 136, 207, 0.16); }
 window.hm-settings list.hm-nav > row:selected { background: #7a88cf; color: #1f2335; font-weight: 700; }
 window.hm-settings list.hm-nav > row:selected image { color: #1f2335; }
 window.hm-settings .hm-header { padding: 18px 24px; border-bottom: 1px solid #343a5c; }
@@ -180,25 +181,36 @@ window.hm-settings .hm-page-title { font-weight: 800; font-size: 17px; }
 window.hm-settings .hm-page { margin: 24px 44px 40px 44px; }
 window.hm-settings .hm-group-title { font-weight: 800; font-size: 15px; color: #c0caf5; }
 window.hm-settings .hm-group-desc { color: #a9b1d6; font-size: 13px; }
+/* header buttons end where the rows' own icons end (row padding 18 − flat button padding 8 − border 1) */
+window.hm-settings .hm-group-suffix { margin-right: 9px; }
 window.hm-settings list.hm-list { background: #262a40; border: 1px solid #343a5c; border-radius: 10px; }
 window.hm-settings list.hm-list > row.hm-row { padding: 0; border-bottom: 1px solid #343a5c; }
 window.hm-settings list.hm-list > row.hm-row:last-child { border-bottom: none; }
 window.hm-settings .hm-row-box { padding: 11px 18px; min-height: 32px; }
-window.hm-settings list.hm-list > row.hm-row:hover { background: transparent; }
-window.hm-settings list.hm-list > row.hm-row:hover .hm-row-box, window.hm-settings list.hm-list > row.hm-button-row:hover {
-  background: rgba(122, 136, 207, 0.10); }
-window.hm-settings list.hm-list > row.hm-row:first-child:hover .hm-row-box { border-radius: 10px 10px 0 0; }
-window.hm-settings list.hm-list > row.hm-row:last-child:hover .hm-row-box { border-radius: 0 0 10px 10px; }
-window.hm-settings list.hm-list > row.hm-entry-row:hover .hm-row-box { background: transparent; }
+/* One hover rule set: only what reacts to a click lights up, every row with the same faint tint (stronger while
+   pressed), clipped to the card's corners by the list itself. Info rows (IP address, …) and text-field rows stay
+   still; an expander lights up its header only, never the rows it opens. */
+window.hm-settings list.hm-list > row { background: transparent; outline: none; }
+window.hm-settings list.hm-list > row.activatable:hover, window.hm-settings .hm-row-box.hm-clickable:hover {
+  background: rgba(122, 136, 207, 0.07); }
+window.hm-settings list.hm-list > row.activatable:active, window.hm-settings .hm-row-box.hm-clickable:active {
+  background: rgba(122, 136, 207, 0.12); }
+window.hm-settings list.hm-list > row.activatable:hover .hm-row-sub .dim,
+window.hm-settings list.hm-list > row.activatable:hover image.dim { color: #a9b1d6; }
 window.hm-settings .hm-row-title { color: #c0caf5; font-size: 15px; }
 window.hm-settings .hm-row-sub { color: #a9b1d6; font-size: 13px; }
 window.hm-settings .hm-entry-title { color: #a9b1d6; font-size: 12px; margin-bottom: 3px; }
 window.hm-settings row.dim .hm-row-title, window.hm-settings .dim { color: #737aa2; }
-window.hm-settings row.hm-button-row { padding: 11px 18px; font-weight: 700; color: #9aa5e0; }
-window.hm-settings row.hm-button-row.destructive { color: #f7768e; }
-window.hm-settings row.hm-button-row.suggested { background: #7a88cf; color: #1f2335; border-radius: 10px; }
-window.hm-settings list.hm-sublist { background: #1f2335; border-top: 1px solid #343a5c; border-radius: 0 0 10px 10px; }
-window.hm-settings list.hm-sublist > row.hm-row .hm-row-box { padding-left: 32px; }
+window.hm-settings list.hm-list > row.hm-button-row { padding: 13px 18px; min-height: 22px; font-weight: 700; color: #9aa5e0; }
+window.hm-settings list.hm-list > row.hm-button-row.destructive { color: #f7768e; }
+window.hm-settings list.hm-list > row.hm-button-row.destructive:hover { background: rgba(247, 118, 142, 0.10); }
+window.hm-settings list.hm-list > row.hm-button-row.destructive:active { background: rgba(247, 118, 142, 0.16); }
+window.hm-settings list.hm-list > row.hm-button-row.suggested { background: #7a88cf; color: #1f2335; }
+window.hm-settings list.hm-list > row.hm-button-row.suggested:hover { background: #9aa5e0; }
+window.hm-settings list.hm-list > row.hm-button-row.suggested:active { background: #7a88cf; }
+window.hm-settings list.hm-sublist { background: #1f2335; border: none; border-top: 1px solid #343a5c; border-radius: 0; }
+/* sub-rows line up with the title of a row that has a 16px icon in front (Wi-Fi networks) */
+window.hm-settings list.hm-sublist > row.hm-row .hm-row-box { padding-left: 46px; }
 window.hm-settings .hm-arrow { color: #a9b1d6; -gtk-icon-size: 16px; }
 window.hm-settings row.hm-expander.open .hm-arrow { -gtk-icon-transform: rotate(180deg); }
 window.hm-settings row.property .hm-row-sub { color: #c0caf5; font-weight: 600; }
@@ -213,35 +225,52 @@ window.hm-settings text placeholder, window.hm-settings entry image, window.hm-s
 window.hm-settings text selection { background: #7a88cf; color: #1f2335; }
 window.hm-settings .hm-sidebar entry { margin: 0 4px 8px 4px; min-height: 38px; font-size: 16px; }
 window.hm-settings spinbutton > button { background: transparent; border: none; color: #a9b1d6; box-shadow: none; min-width: 34px; }
-window.hm-settings spinbutton > button:hover { color: #c0caf5; background: rgba(122, 136, 207, 0.18); }
+window.hm-settings spinbutton > button:hover { color: #c0caf5; background: rgba(122, 136, 207, 0.14); }
+window.hm-settings spinbutton > button:active { background: rgba(122, 136, 207, 0.22); }
+window.hm-settings spinbutton > button:disabled { color: #737aa2; background: transparent; }
+window.hm-settings entry:hover, window.hm-settings spinbutton:hover, window.hm-settings passwordentry:hover { border-color: #737aa2; }
 window.hm-settings button {
   background: #2c314a; color: #c0caf5; border: 1px solid #4b517a; border-radius: 8px; box-shadow: none;
   padding: 5px 14px; min-height: 22px; font-size: 15px; }
-window.hm-settings button:hover { background: rgba(122, 136, 207, 0.25); }
-window.hm-settings button.flat { background: transparent; border-color: transparent; padding: 5px 8px; min-width: 22px; }
-window.hm-settings button.flat:hover { background: rgba(122, 136, 207, 0.18); }
+/* buttons: hover lays the same accent tint over the button's own fill (solid buttons stay solid), press deepens it */
+window.hm-settings button:hover, window.hm-settings list.hm-list > row.activatable:hover button.pill {
+  background-image: linear-gradient(rgba(122, 136, 207, 0.16), rgba(122, 136, 207, 0.16)); border-color: #737aa2; }
+window.hm-settings button:active, window.hm-settings button:checked, window.hm-settings list.hm-list > row.activatable:active button.pill {
+  background-image: linear-gradient(rgba(122, 136, 207, 0.26), rgba(122, 136, 207, 0.26)); }
+window.hm-settings button:disabled { opacity: 0.45; background-image: none; }
+window.hm-settings button:focus-visible { outline: 2px solid rgba(122, 136, 207, 0.7); outline-offset: 1px; }
+window.hm-settings button.flat { background: transparent; border-color: transparent; padding: 5px 8px; min-width: 22px; color: #a9b1d6; }
+window.hm-settings button.flat:hover { background-image: none; background: rgba(122, 136, 207, 0.14); border-color: transparent; color: #c0caf5; }
+window.hm-settings button.flat:active { background: rgba(122, 136, 207, 0.22); }
+window.hm-settings button.flat.hm-btn { color: #9aa5e0; font-weight: 700; padding: 5px 12px; }
 window.hm-settings button.suggested { background: #7a88cf; color: #1f2335; border-color: #7a88cf; font-weight: 700; }
-window.hm-settings button.suggested:disabled { opacity: 0.45; }
+window.hm-settings button.suggested:hover { background-image: none; background: #9aa5e0; border-color: #9aa5e0; }
+window.hm-settings button.suggested:active { background: #7a88cf; }
 window.hm-settings button.destructive { background: transparent; color: #f7768e; border-color: #f7768e; }
-window.hm-settings button.destructive:hover { background: #f7768e; color: #1f2335; }
-window.hm-settings button.pill { border-radius: 999px; padding: 5px 18px; font-weight: 600; }
-window.hm-settings button.hm-apply { color: #7a88cf; }
+window.hm-settings button.destructive:hover { background-image: none; background: #f7768e; color: #1f2335; border-color: #f7768e; }
+window.hm-settings button.pill { border-radius: 999px; padding: 5px 18px; min-width: 64px; font-weight: 600; }
+window.hm-settings button.flat.hm-apply { color: #7a88cf; }
 window.hm-settings button.recording { background: #d7729f; color: #1f2335; }
 window.hm-settings button.hm-scan:disabled { color: #7a88cf; opacity: 1; font-weight: 800; }
 window.hm-settings switch { background: #2c314a; border: 1px solid #4b517a; border-radius: 999px; min-width: 46px; min-height: 24px; }
 window.hm-settings switch:checked { background: #7a88cf; border-color: #7a88cf; }
+window.hm-settings switch:hover { border-color: #737aa2; }
+window.hm-settings switch:checked:hover { background: #9aa5e0; border-color: #9aa5e0; }
 window.hm-settings switch slider { background: #c0caf5; min-width: 20px; min-height: 20px; border-radius: 999px; margin: 2px; }
 window.hm-settings checkbutton check, window.hm-settings checkbutton radio {
   background: #2c314a; border: 1px solid #4b517a; color: #1f2335; min-width: 18px; min-height: 18px; }
+window.hm-settings checkbutton:hover check, window.hm-settings checkbutton:hover radio { border-color: #737aa2; }
 window.hm-settings checkbutton check:checked, window.hm-settings checkbutton radio:checked { background: #7a88cf; border-color: #7a88cf; }
 window.hm-settings dropdown > button { min-width: 150px; }
 window.hm-settings popover > contents { background: #24283b; color: #c0caf5; border: 1px solid #4b517a; border-radius: 8px; padding: 6px; }
 window.hm-settings popover listview { background: transparent; }
 window.hm-settings popover listview > row { padding: 7px 10px; border-radius: 6px; }
-window.hm-settings popover listview > row:hover, window.hm-settings popover listview > row:selected { background: rgba(122, 136, 207, 0.2); }
+window.hm-settings popover listview > row:selected { background: transparent; }
+window.hm-settings popover listview > row:hover, window.hm-settings popover listview > row:focus-visible { background: rgba(122, 136, 207, 0.14); }
 window.hm-settings scale trough { background: #2c314a; min-height: 8px; border-radius: 999px; }
 window.hm-settings scale highlight { background: #7a88cf; border-radius: 999px; }
 window.hm-settings scale slider { background: #c0caf5; border: none; min-width: 18px; min-height: 18px; border-radius: 999px; }
+window.hm-settings scale slider:hover { background: #ffffff; }
 window.hm-settings scale value { color: #a9b1d6; min-width: 72px; }
 /* scrollbars: a slim rounded pill clear of the edge, wider and accent-coloured under the pointer */
 window.hm-settings scrollbar, window.hm-settings scrollbar trough { background: transparent; border: none; box-shadow: none; }

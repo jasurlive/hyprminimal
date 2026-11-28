@@ -23,15 +23,16 @@ static GtkWidget *boxed_list(void) {
     GtkWidget *l = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(l), GTK_SELECTION_NONE);
     gtk_widget_add_css_class(l, "hm-list");
+    gtk_widget_set_overflow(l, GTK_OVERFLOW_HIDDEN);   // row hovers clip to the card's rounded corners
     g_signal_connect(l, "row-activated", G_CALLBACK(list_row_activated), NULL);
     return l;
 }
 
 // a titled group of rows; returns its list (rows go in with group_add). desc may contain markup.
 static GtkWidget *group_new(GtkWidget *page, const char *title, const char *desc) {
-    GtkWidget *g = VBOX(8, "hm-group"), *head = HBOX(12, NULL), *texts = VBOX(2, NULL), *suffix = HBOX(4, NULL);
+    GtkWidget *g = VBOX(8, "hm-group"), *head = HBOX(12, NULL), *texts = VBOX(2, NULL), *suffix = HBOX(4, "hm-group-suffix");
     gtk_widget_set_hexpand(texts, TRUE);
-    gtk_widget_set_valign(suffix, GTK_ALIGN_END);
+    gtk_widget_set_valign(suffix, GTK_ALIGN_CENTER);
     if (title && *title) gtk_box_append(GTK_BOX(texts), lbl(title, "hm-group-title", 0));
     if (desc && *desc) {
         GtkWidget *d = gtk_label_new(NULL);
@@ -67,6 +68,8 @@ static GtkWidget *row_layout(GtkWidget *owner, const char *title, const char *su
     gtk_widget_set_valign(texts, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(pre, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(suf, GTK_ALIGN_CENTER);
+    gtk_widget_set_visible(pre, FALSE);   // shown by row_prefix/row_suffix: an empty box would still take the row's spacing
+    gtk_widget_set_visible(suf, FALSE);
     GtkWidget *t = gtk_label_new(title ? title : "");
     gtk_label_set_xalign(GTK_LABEL(t), 0);
     gtk_label_set_wrap(GTK_LABEL(t), TRUE);
@@ -101,8 +104,24 @@ static GtkWidget *row_new(const char *title, const char *sub) {
     return row;
 }
 
-static void row_prefix(GtkWidget *row, GtkWidget *w) { gtk_box_append(GTK_BOX(g_object_get_data(G_OBJECT(row), "hm-prefix")), w); }
-static void row_suffix(GtkWidget *row, GtkWidget *w) { gtk_box_append(GTK_BOX(g_object_get_data(G_OBJECT(row), "hm-suffix")), w); }
+// a prefix/suffix box is visible while any of its children is, so text and fields line up with the card edges
+static void slot_sync(GtkWidget *box) {
+    gboolean any = FALSE;
+    for (GtkWidget *c = gtk_widget_get_first_child(box); c && !any; c = gtk_widget_get_next_sibling(c)) any = gtk_widget_get_visible(c);
+    gtk_widget_set_visible(box, any);
+}
+static void slot_child_visible(GtkWidget *w, GParamSpec *ps, gpointer d) {
+    (void)ps; (void)d;
+    GtkWidget *box = gtk_widget_get_parent(w);
+    if (box) slot_sync(box);
+}
+static void slot_append(GtkWidget *box, GtkWidget *w) {
+    gtk_box_append(GTK_BOX(box), w);
+    g_signal_connect(w, "notify::visible", G_CALLBACK(slot_child_visible), NULL);
+    slot_sync(box);
+}
+static void row_prefix(GtkWidget *row, GtkWidget *w) { slot_append(g_object_get_data(G_OBJECT(row), "hm-prefix"), w); }
+static void row_suffix(GtkWidget *row, GtkWidget *w) { slot_append(g_object_get_data(G_OBJECT(row), "hm-suffix"), w); }
 static void row_set_title(GtkWidget *row, const char *t) {
     GtkWidget *l = g_object_get_data(G_OBJECT(row), "hm-title");
     gtk_label_set_label(GTK_LABEL(l), t);
@@ -179,7 +198,7 @@ static GtkWidget *combo_row(GtkWidget *list, const char *title, const char *sub,
 }
 
 // ---------------------------------------------------------------- entry rows
-// Title over a text field. With apply: a ✓ button shows while the text differs from what was applied
+// Title over a text field (no title: just the field, on one line with the row's buttons). With apply: a ✓ button shows while the text differs from what was applied
 // last; it and Enter call apply(entry, data).
 static void entry_apply(GtkWidget *e) {
     RowFn fn = g_object_get_data(G_OBJECT(e), "hm-apply");
@@ -212,9 +231,12 @@ static GtkWidget *entry_row_full(GtkWidget *list, const char *title, const char 
     GtkWidget *row = row_new(NULL, NULL);
     gtk_widget_add_css_class(row, "hm-entry-row");
     GtkWidget *texts = g_object_get_data(G_OBJECT(row), "hm-texts");
-    GtkWidget *t = g_object_get_data(G_OBJECT(row), "hm-title");
-    row_set_title(row, title);
-    gtk_widget_add_css_class(t, "hm-entry-title");
+    if (title) {
+        row_set_title(row, title);
+        gtk_widget_add_css_class(g_object_get_data(G_OBJECT(row), "hm-title"), "hm-entry-title");
+        // buttons beside the field sit level with it, not centred on title + field
+        gtk_widget_set_valign(g_object_get_data(G_OBJECT(row), "hm-suffix"), GTK_ALIGN_END);
+    }
     GtkWidget *e;
     if (password) {
         e = gtk_password_entry_new();
@@ -282,6 +304,7 @@ static GtkWidget *expander_row(GtkWidget *list, const char *title, const char *s
         g_signal_connect(g, "released", G_CALLBACK(expander_toggle), row);
         gtk_widget_add_controller(hbox, GTK_EVENT_CONTROLLER(g));
         gtk_widget_set_cursor_from_name(hbox, "pointer");
+        gtk_widget_add_css_class(hbox, "hm-clickable");   // only the header hovers, not the rows it opens
     }
     if (list) group_add(list, row);
     return row;

@@ -62,6 +62,7 @@ static void kb_refresh_dialog(void) {
     GtkWidget *suf = g_object_get_data(G_OBJECT(KB.preview), "hm-suffix");
     for (GtkWidget *c; (c = gtk_widget_get_first_child(suf));) gtk_box_remove(GTK_BOX(suf), c);
     gtk_box_append(GTK_BOX(suf), *t ? keycaps(t) : lbl("—", NULL, 1));
+    gtk_widget_set_visible(suf, TRUE);
     char *clash = *t ? kb_conflicts(KB.kf, t, KB.editing) : NULL;
     char *w = clash ? g_strdup_printf("Already used by: %s", clash) : g_strdup("");
     gtk_label_set_label(GTK_LABEL(KB.warn), w);
