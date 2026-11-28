@@ -22,7 +22,8 @@ For what hyprminimal is and how it's built, see [README.md](README.md).
 | `hyprminimal stop` | Stops hyprminimal, for this session only. |
 | `hyprminimal restart` | Restarts everything, including the settings process. Run it after editing any file in this folder by hand. |
 | `hyprminimal respawn NAME` | Restarts one component: `waybar` or `panels` (popups, control center, notifications, OSD; rebuilt first if its C source changed). |
-| `hyprminimal status` | Shows whether hyprminimal is active, every process it runs with its RAM (RSS), and any missing packages. |
+| `hyprminimal build` | Builds the C helpers (`helpers/*.c`, with `helpers/NAME/`) that are older than their source. Exits with an error, and leaves the last built version in place, if one fails to compile; the compiler output is in `helpers-build.log`. `start`, `restart` and `respawn panels` build too, and show a failure as the bar's red error pill. |
+| `hyprminimal status` | Shows whether hyprminimal is active, every process it runs with its memory (PSS: shared libraries split between the processes using them, so the total is real), and any missing packages. |
 | `hyprminimal-settings` | Opens Settings. `--page NAME` opens a specific page, and `--apply` regenerates the configs without opening a window. |
 
 All of these are in `~/www/hyprminimal/bin/`.
@@ -121,9 +122,8 @@ Any key that is missing from the file falls back to its default.
 ### General
 | Setting | Key | Default | Notes |
 |---|---|---|---|
-| Interface font | `general.font` | `Noto Sans` | Used by the bar, panels, notifications and lock screen. |
-| Theme | General | Charcoal | Charcoal, Hygge, Spruce, Fjord (dark), Linen, Matte, Sage (light), all from the django-react template, or Tokyo Night. Bar, popups, notifications, OSD, launcher, kitty, lock screen, login screen, Hyprland borders and Settings follow it. See [Customizing the look](#customizing-the-look). |
-| Keep Settings ready | `general.preload` | Off | Settings starts at login, parked on a hidden workspace: Super+I only moves it in or out (~20 ms, no redraw; ~110 MB RAM). Super+I closes it whenever it shows on your workspace, wherever the keyboard focus is. Off: cold start on first use (~0.5 s), and it quits 10 min after you close it. Takes effect live. |
+| Interface font | `general.font` | `Noto Sans` | Used by the bar, panels, notifications, Settings and lock screen. |
+| Theme | General | Charcoal | Charcoal, Hygge, Spruce, Fjord (all dark, from the django-react template), or Tokyo Night. Bar, popups, notifications, OSD, launcher, kitty, lock screen, login screen, Hyprland borders and Settings follow it. See [Customizing the look](#customizing-the-look). |
 
 ### Bar
 | Setting | Key | Range / values | Default |
@@ -155,7 +155,7 @@ a name (default "hyprminimal") on a background layer, once per monitor. Both fol
 | Logo | `desktop.logo` | On | Off with an empty name: a plain theme colour, nothing else. |
 
 Both apply live (Settings writes `.generated/desktop`; the popup program watches it and redraws the desktop). The logo is
-`.generated/arch-logo.png`, drawn by `arch_logo()` in `settings/hyprminimal_settings.py` from the Symbols
+`.generated/arch-logo.png`, drawn by `arch_logo()` in `helpers/panels/settings/render.c` from the Symbols
 Nerd Font glyph without its ™ sign; change the wordmark in `settings/panels.css` (`.bg-word`).
 
 ### Notifications
@@ -234,20 +234,20 @@ Shows the version of each package and the paths of `settings.json` and `keybind.
 launcher and session menu, bar popups, Settings, kitty, the lock screen and Hyprland's window borders.
 
 **How it works.** The style files in the repo (`waybar/style.css`, `settings/panels.css`,
-`rofi/*.rasi`, `hyprlock/hyprlock.conf`, the CSS inside `settings/*.py`) are written in
-Tokyo Night colours. `settings/themes.py` gives every one of those colours a *role* (`primary`, `surface`,
+`hyprlock/hyprlock.conf`) are written in
+Tokyo Night colours. `helpers/panels/settings/themes.c` gives every one of those colours a *role* (`primary`, `surface`,
 `outline`, `on_surface`, …) and, when you pick a theme, writes copies with each colour swapped for the theme's
 colour in the same role into `.generated/`. So:
 
 - **Change the layout or shape of something** (sizes, padding, corners): edit its repo file, then
   `hyprminimal restart`. Keep using the Tokyo Night colours from `colors/palette.css` in it, and the edit
   works in every theme.
-- **Change a theme's colours**: edit its entry in `TEMPLATE` in `settings/themes.py`: `bg`, `bg_elev`,
-  `surface`, `text`, `text_strong`, `muted`, `accent`, `accent_hover`, `danger`. The other roles are mixed
-  from these in `roles()`. Then `hyprminimal restart`.
-- **Add a theme**: add an entry to `TEMPLATE`, its name to `ORDER` and a line to `DESCRIPTION` in
-  `settings/themes.py`. It shows up in Settings → General.
-- **Terminal colours**: kitty includes `.generated/kitty-colors.conf` (from `kitty_conf()` in `themes.py`,
+- **Change a theme's colours**: edit its entry in `THEMES` in `helpers/panels/settings/themes.c`: `bg`,
+  `bg_elev`, `surface`, `text`, `text_strong`, `muted`, `accent`, `accent_hover`, `danger`. The other roles
+  are mixed from these in `roles()`. Then `hyprminimal restart` (it rebuilds the C program).
+- **Add a theme**: add an entry to `THEMES` in `helpers/panels/settings/themes.c` (themes are dark: the roles
+  are mixed for a dark background). It shows up in Settings → General.
+- **Terminal colours**: kitty includes `.generated/kitty-colors.conf` (from `kitty_conf()` in `themes.c`,
   ANSI colours in `ANSI_DARK` / `ANSI_TOKYO`). Running kittys reload on a theme change.
 - **Window borders**: `.generated/hypr-theme.lua` (from `hypr_lua()`), loaded by `hypr/layerrules.lua`
   after your own `~/.config/hypr/theme.lua`, so it wins.
@@ -260,24 +260,22 @@ colour in the same role into `.generated/`. So:
 Its size comes from `.generated/clock_zone.json`, recalculated whenever the bar's text, font or widgets
 change. Nothing on the bar reacts to hovering: tooltips are off, info opens on click.
 
-**Other apps.** GTK apps follow the theme's light or dark mode: on every theme change (and at the first start)
-Settings sets `gsettings` `color-scheme` and `gtk-theme` (`adw-gtk3` / `adw-gtk3-dark`, so GTK3 apps like
-blueman match the libadwaita ones) and the same keys in `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
+**Other apps.** GTK apps are dark too: on every theme change (and at the first start)
+Settings sets `gsettings` `color-scheme` and `gtk-theme` (`adw-gtk3-dark`, so GTK3 apps like
+blueman match the GTK4 ones) and the same keys in `~/.config/gtk-3.0` / `gtk-4.0/settings.ini`. Qt apps use qt6ct
 (`QT_QPA_PLATFORMTHEME=qt6ct` in `startup.lua`, dark palette in `~/.config/qt6ct/qt6ct.conf`; change it with
 the `qt6ct` app). Electron apps (VS Code, Discord, …) follow the dark setting through the desktop portal; VS
 Code also needs `"window.titleBarStyle": "custom"` in its settings, or its menu bar stays light on Wayland.
 
 | Generated file | Used by |
 |---|---|
-| `.generated/theme` | Current theme, dark/light |
+| `.generated/theme` | Current theme |
 | `.generated/palette.css` | Colour roles (GTK `@define-color`) |
-| `.generated/waybar.css`, `panels.css` | Bar; popups, control center, notifications and OSD |
+| `.generated/waybar.css`, `panels.css` | Bar; popups, control center, notifications, OSD, launcher and session menu |
 | `.generated/notify.conf` | Notification popup position and seconds on screen (read live by `helpers/panels.c`) |
-| `.generated/rofi/*.rasi` | Launcher and session menu |
 | `.generated/hyprlock.conf` | Lock screen |
 | `.generated/kitty-colors.conf` | kitty |
 | `.generated/hypr-theme.lua` | Hyprland border colours |
-| `.generated/preload` | `on`/`off`: start Settings hidden at login |
 | `.generated/clock_zone.json` | Calendar click area |
 
 ---
@@ -290,7 +288,7 @@ Super+H opens the editor. From it you can search,
 edit, record a new key combo, add shortcuts and remove them.
 
 Every save goes through these steps:
-1. `~/.config/hypr/keybind.lua` is backed up to `~/.config/hypr/.pre-hyprminimal-backup/`.
+1. `~/.config/hypr/keybind.lua` is backed up to `~/.config/hypr/.pre-hyprminimal-backup/` (the newest 10 backups are kept).
 2. Hyprland reloads.
 3. If Hyprland reports an error, the change is undone automatically.
 
@@ -323,8 +321,8 @@ Shell actions in `keybind.lua` call `bin/hyprminimal-msg ACTION`, which runs the
 |---|---|
 | Your settings | `settings.json` |
 | Generated configs (never edit these) | `.generated/`, rebuilt from `settings.json` |
-| Hand-editable base configs | `waybar/`, `settings/panels.css`, `rofi/`, `hyprlock/`, `colors/` (written in Tokyo Night colours; themed copies go to `.generated/`) |
-| Themes | `settings/themes.py` |
+| Hand-editable base configs | `waybar/`, `settings/panels.css`, `hyprlock/`, `colors/` (written in Tokyo Night colours; themed copies go to `.generated/`) |
+| Themes | `helpers/panels/settings/themes.c` |
 | Logs | `$XDG_RUNTIME_DIR/hyprminimal/*.log` (usually `/run/user/1000/hyprminimal/`). The previous run of each log is kept as `NAME.log.1`. |
 | "hyprminimal is active" flag | `$XDG_RUNTIME_DIR/hyprminimal/active` |
 | Backups of Hyprland files | `~/.config/hypr/.pre-hyprminimal-backup/` |
@@ -380,15 +378,17 @@ To see the crash details, check its core dump: `coredumpctl list waybar`, then `
 - Test it with `hyprminimal-settings --apply`, which prints the error.
 
 **`settings.json` is broken (bad JSON)**
-- If the file can't be parsed, hyprminimal uses the **defaults** for everything.
-- ⚠️ If you change anything in Settings while the file is broken, Settings saves the defaults over it. Fix the file first.
+- If settings.json is broken, hyprminimal keeps your file and the last working look; fix or delete it.
+- Nothing overwrites the file while it's broken: `hyprminimal start`, Settings and Super+M refuse to save, and
+  the bar's red error pill and the General page of Settings say why. Deleting the file starts over from the defaults.
 - Find the problem with `jq . ~/www/hyprminimal/settings.json`. It prints the line with the error.
+- After fixing it, press **Apply again** in Settings → General (or run `hyprminimal restart`).
 
 **Settings (Super+I) doesn't open, or shows stale pages**
-- Settings stays running in the background for 10 minutes after you close it, so that it opens instantly. If that background process hangs:
-  `pkill -f hyprminimal_settings.py`. Then press Super+I again.
-- After you edit the Python files in `settings/`, run `hyprminimal restart`. The background process caches the old code.
-- Errors are in `settings.log`.
+- Settings is a window of the resident popup program (`helpers/panels.c`, `helpers/panels/settings/`): closing it
+  parks it on a hidden workspace, so Super+I only moves it back. If it hangs, `hyprminimal respawn panels`.
+- After you edit the C files, run `hyprminimal restart`: it rebuilds and restarts the program.
+- Errors are in `panels.log`.
 
 **Bar popups (calendar, battery, network) don't appear or appear in the wrong place**
 - They need `gtk4-layer-shell` (`/usr/lib/libgtk4-layer-shell.so`). Install it with `sudo pacman -S gtk4-layer-shell`, then run `hyprminimal restart`.

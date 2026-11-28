@@ -2,10 +2,9 @@
 -- Animations are off globally (animations.lua); no_anim keeps popups instant even if you turn them back on.
 -- Loaded from ~/.config/hypr/hyprland.lua (dofile); harmless when hyprminimal isn't running.
 for name, ns in pairs({ notif = "^hyprminimal-notifications$", osd = "^hyprminimal-osd$",
-                        rofi = "^rofi$", panel = "^hyprminimal-panel$" }) do
+                        panel = "^hyprminimal-panel$" }) do
     hl.layer_rule({ name = "hyprminimal-" .. name, match = { namespace = ns }, no_anim = true })
 end
-hl.layer_rule({ name = "hyprminimal-catcher", match = { namespace = "^hyprminimal-catcher$" }, no_anim = true })
 
 -- bar popups close on a click anywhere but the popup or the bar (non_consuming: the click still
 -- reaches the window). Not on focus changes: follow_mouse moves focus on mere hover.
@@ -39,7 +38,7 @@ local function open_settings()
 end
 -- Settings closes like a popup on a click outside it. Not on clicks in its own dialogs (file and
 -- font pickers are separate windows of the same process), the bar, or hyprminimal's popups.
-local SHELL_LAYERS = { waybar = true, ["hyprminimal-panel"] = true, rofi = true,
+local SHELL_LAYERS = { waybar = true, ["hyprminimal-panel"] = true,
                        ["hyprminimal-notifications"] = true }
 local function settings_click(p)
     local s = open_settings()
@@ -74,12 +73,10 @@ hl.window_rule({ match = { class = "^hyprminimal-remove$" }, float = true, size 
 -- theme from Settings -> General (window border colours)
 pcall(dofile, HM .. "/.generated/hypr-theme.lua")
 local settings_rule = { match = { class = "^dev\\.hyprminimal\\.Settings$" }, float = true, center = 1,
-                        size = "min(1120,monitor_w*0.92) min(760,monitor_h*0.9)",  -- fits scaled laptops (1280x720 at 1.5x)
+                        size = "min(1280,monitor_w*0.92) min(860,monitor_h*0.9)",  -- fits scaled laptops (1280x720 at 1.5x)
                         no_anim = true, opaque = true }
 hl.window_rule(settings_rule)
--- Keep Settings ready: the preloaded window maps straight onto a special workspace nothing shows (by its
--- temporary title); Super+I then only moves it in and out (settings/hyprminimal_settings.py, PARK)
-hl.window_rule({ match = { class = "^dev\\.hyprminimal\\.Settings$", title = "^hyprminimal settings \\(parked\\)$" },
-                 workspace = "special:hyprminimal-settings silent" })
+-- closing Settings parks it on special:hyprminimal-settings (nothing shows it); Super+I moves it back
+-- (helpers/panels/settings/app.c)
 
 return true

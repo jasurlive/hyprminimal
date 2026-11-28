@@ -1,4 +1,4 @@
-// Included by helpers/panels.c. Volume / brightness OSD (replaces swayosd): a small box under the bar,
+// Included by helpers/panels.c. Volume / brightness OSD: a small box under the bar,
 // centred, that never takes the keyboard or a click and hides 1.5 s after the last change.
 //   osd "volume:+5" | "volume:-3" | "volume:mute"   wpctl on the default sink (capped at 100%)
 //   osd "brightness:+5" | "brightness:-2"            /sys/class/backlight, set through logind (no root, no fork)
@@ -98,11 +98,27 @@ static void osd_volume(OsdReq *r, const char *arg) {
     g_free(g);
 }
 
-static void osd_brightness(OsdReq *r, const char *arg) {
+// acpi_video0 and intel_backlight can both exist; rank by type like systemd-backlight does
+static char *backlight_dev(void) {   // firmware > platform > raw
+    static const char *rank[] = {"firmware", "platform", "raw"};
     GDir *d = g_dir_open("/sys/class/backlight", 0, NULL);
-    const char *dev = d ? g_dir_read_name(d) : NULL;
-    char *name = g_strdup(dev);
-    if (d) g_dir_close(d);
+    if (!d) return NULL;
+    char *best = NULL;
+    int best_r = G_N_ELEMENTS(rank);
+    for (const char *e; (e = g_dir_read_name(d));) {
+        char p[256], t[16] = "";
+        snprintf(p, sizeof p, "/sys/class/backlight/%s/type", e);
+        if (!read_small(p, t, sizeof t)) continue;
+        g_strchomp(t);
+        for (int r = 0; r < best_r; r++)
+            if (!strcmp(t, rank[r])) { best_r = r; g_free(best); best = g_strdup(e); break; }
+    }
+    g_dir_close(d);
+    return best;
+}
+
+static void osd_brightness(OsdReq *r, const char *arg) {
+    char *name = backlight_dev();
     if (!name) return;
     char p[256];
     snprintf(p, sizeof p, "/sys/class/backlight/%s/max_brightness", name);

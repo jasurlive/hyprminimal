@@ -1,4 +1,4 @@
-// hyprminimal bar: matches your active Noctalia bar
+// hyprminimal bar: one thin strip on top, solid, no animations
 // left: workspaces | center: "15 |" 17:04 | right: media capsule, notifications, battery, download speed
 {
   "layer": "top",

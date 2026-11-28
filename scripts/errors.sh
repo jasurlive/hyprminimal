@@ -3,7 +3,7 @@
 # No polling: bin/hyprminimal and Settings refresh it with `pkill -RTMIN+9 waybar` when an error appears or clears.
 E=${XDG_RUNTIME_DIR:-/tmp}/hyprminimal/errors
 declare -A NAME=([waybar]="Bar" [panels]="Popups"
-                 [settings]="Settings")
+                 [settings]="Settings" [build]="Build")
 json() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; s=${s//$'\n'/\\n}; s=${s//$'\t'/ }; printf '%s' "$s"; }
 n=0 first="" tip=""
 for f in "$E"/*; do

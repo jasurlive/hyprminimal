@@ -12,7 +12,7 @@
 #include <sys/prctl.h>
 
 #define FPS 3
-#define FRAMES 4    // = len(EQ_FRAMES) in settings/hyprminimal_settings.py
+#define FRAMES 4    // = EQ_FRAMES in helpers/panels/settings/render.c
 #define TITLE_MAX 26      // characters of the title shown in the capsule
 
 static GDBusProxy *P;

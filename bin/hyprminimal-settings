@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
-# hyprminimal settings app (GTK4 + libadwaita). See settings/hyprminimal_settings.py --help
-# Fast path: if the app is already running (it stays resident, hidden, for 10 min after closing),
-# ask it over D-Bus to show the page: ~10 ms instead of starting Python + GTK.
+# hyprminimal settings: the Settings window is part of the resident panels program (helpers/panels.c).
+#   hyprminimal-settings                 open Settings on the page shown last
+#   hyprminimal-settings --page NAME     open on a page: general, bar, notifications, startup, network,
+#                                        nightlight, keybinds, system, about
+#   hyprminimal-settings --apply         regenerate .generated/* from settings.json (no window)
+#   hyprminimal-settings --toggle-bar    flip Bar → Hide bar and regenerate (Super+M signals waybar itself)
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-if [[ $1 != --apply && $1 != --toggle-bar && $1 != --preload && $1 != -h && $1 != --help ]]; then
-  page=last   # no --page: reopen on the page shown last
-  [[ $1 == --page && -n ${2:-} ]] && page=$2
-  [[ $page =~ ^[a-z]+$ ]] || page=last
-  gdbus call --session --dest dev.hyprminimal.Settings --object-path /dev/hyprminimal/Settings \
-    --method org.gtk.Actions.Activate show-page "[<'$page'>]" "{}" >/dev/null 2>&1 && exit 0
-fi
-# software rendering: the GPU renderers load the whole GL/Vulkan driver stack (~210 MB RSS vs ~110 MB) for a
-# window that is mostly still; showing it is a move anyway (see PARK). GSK_RENDERER in the environment wins.
-export GSK_RENDERER=${GSK_RENDERER:-cairo}
-exec python3 -I "$DIR/settings/hyprminimal_settings.py" "$@"
+PANELS="$DIR/.generated/bin/panels"
+case ${1:-} in
+  -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  --apply|--toggle-bar)
+    "$DIR/bin/hyprminimal" build || exit 1   # rebuilds panels when its source is newer
+    exec "$PANELS" "$1" ;;
+esac
+page=last   # no --page: reopen on the page shown last
+[[ ${1:-} == --page && -n ${2:-} ]] && page=$2
+[[ $page =~ ^[a-z]+$ ]] || page=last
+# running (the usual case): ask it over D-Bus, ~10 ms
+gdbus call --session --dest dev.hyprminimal.Panels --object-path /dev/hyprminimal/Panels \
+  --method org.gtk.Actions.Activate settings "[<'$page'>]" "{}" >/dev/null 2>&1 && exit 0
+[[ -x $PANELS ]] || "$DIR/bin/hyprminimal" build || exit 1
+exec setsid -f "$PANELS" --settings "$page" >/dev/null 2>&1 </dev/null

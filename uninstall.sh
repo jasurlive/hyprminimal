@@ -159,7 +159,8 @@ rmv "$DIR/settings.json"
 # ------------------------------------------------------------------ packages (opt-in)
 if (( PACKAGES )); then
   step "Removing hyprminimal-only packages"
-  # needed by stock Hyprland, the network, or to run ./install.sh again
+  # needed by stock Hyprland, the network, or to run ./install.sh again. python: hyprminimal no longer
+  # installs it (older versions did), but much other software depends on it, so it is never removed here
   keep=" hyprland kitty networkmanager wireplumber python gcc pkgconf gtk4 json-c noto-fonts "
   mapfile -t pk < <(awk '!/^[[:space:]]*(#|$)/ {print $1}' "$DIR/packages.txt")
   rm_pk=()
