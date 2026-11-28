@@ -1,0 +1,126 @@
+# ~/.config/helix/config.toml
+# Reload after editing: :config-reload
+# Key names: C- = Ctrl, S- = Shift, A- = Alt
+# List of all commands: https://docs.helix-editor.com/commands.html
+
+theme = "onedark"
+
+[editor]
+line-number = "relative"   # distance from cursor; use "absolute" for VS Code style
+mouse = true               # click, drag-select, scroll
+cursorline = true          # highlight current line
+
+[editor.cursor-shape]
+insert = "bar"             # thin cursor while typing, like VS Code
+
+# ─────────────────────────────────────────────
+# NORMAL mode (moving / commands)
+# ─────────────────────────────────────────────
+[keys.normal]
+# --- Files ---
+C-s = ":write"                      # save
+C-x = ":quit"                       # quit (refuses if unsaved; :q! to force)
+C-p = "file_picker"                 # Ctrl+P: find file
+C-S-p = "command_palette"           # Ctrl+Shift+P: all commands
+C-S-f = "global_search"             # search in whole project
+
+# --- Clipboard (system clipboard, needs wl-clipboard) ---
+C-a = "select_all"
+C-c = "yank_to_clipboard"           # copy selection
+C-v = "paste_clipboard_after"       # paste
+
+# --- Undo / redo ---
+C-z = "undo"
+C-y = "redo"
+C-S-z = "redo"
+
+# --- Find & comment ---
+C-f = "search"                      # n / N = next / previous match
+"C-/" = "toggle_comments"
+
+# --- Delete ---
+backspace = "delete_selection"      # delete what is selected
+del = "delete_selection"
+C-S-k = ["extend_to_line_bounds", "delete_selection"]  # delete whole line
+
+# --- Shift + arrows: select like VS Code ---
+S-left = "extend_char_left"
+S-right = "extend_char_right"
+S-up = "extend_visual_line_up"
+S-down = "extend_visual_line_down"
+S-home = "extend_to_line_start"
+S-end = "extend_to_line_end"
+C-S-left = "extend_prev_word_start"   # select word by word
+C-S-right = "extend_next_word_end"
+C-l = "extend_line_below"             # select line (repeat = more lines)
+
+# --- Jumping ---
+home = "goto_line_start"
+end = "goto_line_end"
+C-home = "goto_file_start"
+C-end = "goto_last_line"
+C-left = "move_prev_word_start"
+C-right = "move_next_word_end"
+C-up = ["goto_prev_paragraph", "collapse_selection"]    # jump to previous block, like nano
+C-down = ["goto_next_paragraph", "collapse_selection"]  # jump to next block
+
+# --- Indent ---
+tab = "indent"
+S-tab = "unindent"
+
+# --- Code (LSP) ---
+F2 = "rename_symbol"
+F12 = "goto_definition"
+
+# --- Esc clears selection and extra cursors ---
+esc = ["collapse_selection", "keep_primary_selection"]
+
+# --- jj: enter edit (Insert) mode ---
+# Note: single j no longer moves down; use ↓ instead
+j = { j = "insert_mode" }
+
+# ─────────────────────────────────────────────
+# SELECT mode (v): every move extends the selection
+# ─────────────────────────────────────────────
+[keys.select]
+C-s = ":write"
+C-x = ":quit"
+C-c = "yank_to_clipboard"
+backspace = "delete_selection"
+del = "delete_selection"
+"C-/" = "toggle_comments"
+tab = "indent"
+S-tab = "unindent"
+
+# ─────────────────────────────────────────────
+# INSERT mode (typing)
+# ─────────────────────────────────────────────
+[keys.insert]
+C-s = ":write"
+C-x = ":quit"
+C-v = "paste_clipboard_before"
+C-space = "completion"                  # autocomplete popup
+C-backspace = "delete_word_backward"    # delete word left
+C-del = "delete_word_forward"           # delete word right
+C-z = ["normal_mode", "undo"]           # undo (leaves you in Normal mode)
+C-ret = ["normal_mode", "open_below"]   # Ctrl+Enter: new line below
+C-f = ["normal_mode", "search"]
+"C-/" = "toggle_comments"
+
+# Ctrl + up/down while typing: jump by block, stay in Insert mode
+C-up = ["normal_mode", "goto_prev_paragraph", "collapse_selection", "insert_mode"]
+C-down = ["normal_mode", "goto_next_paragraph", "collapse_selection", "insert_mode"]
+
+# Shift + arrows while typing: switch to Normal mode with a selection.
+# Then: Backspace = delete, Ctrl+C = copy, c = replace with new text.
+S-left = ["normal_mode", "extend_char_left"]
+S-right = ["normal_mode", "extend_char_right"]
+S-up = ["normal_mode", "extend_visual_line_up"]
+S-down = ["normal_mode", "extend_visual_line_down"]
+S-home = ["normal_mode", "extend_to_line_start"]
+S-end = ["normal_mode", "extend_to_line_end"]
+C-S-left = ["normal_mode", "extend_prev_word_start"]
+C-S-right = ["normal_mode", "extend_next_word_end"]
+
+# --- jk: back to Normal mode ---
+j = { k = "normal_mode" }
