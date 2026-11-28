@@ -226,6 +226,13 @@ static void entry_row_pressed(GtkGestureClick *g, int n, double x, double y, gpo
     if (!gtk_widget_has_focus(e) && !gtk_widget_is_ancestor(gtk_root_get_focus(gtk_widget_get_root(e)), e)) gtk_widget_grab_focus(e);
 }
 
+static void entry_peek_clicked(GtkButton *b, gpointer e) {
+    gboolean show = !gtk_entry_get_visibility(GTK_ENTRY(e));
+    gtk_entry_set_visibility(GTK_ENTRY(e), show);
+    gtk_button_set_icon_name(b, show ? "view-conceal-symbolic" : "view-reveal-symbolic");
+    gtk_widget_set_tooltip_text(GTK_WIDGET(b), show ? "Hide password" : "Show password");
+}
+
 static GtkWidget *entry_row_full(GtkWidget *list, const char *title, const char *text, gboolean password,
                                  RowFn apply, gpointer d, GtkWidget **row_out) {
     GtkWidget *row = row_new(NULL, NULL);
@@ -237,14 +244,17 @@ static GtkWidget *entry_row_full(GtkWidget *list, const char *title, const char 
         // buttons beside the field sit level with it, not centred on title + field
         gtk_widget_set_valign(g_object_get_data(G_OBJECT(row), "hm-suffix"), GTK_ALIGN_END);
     }
-    GtkWidget *e;
-    if (password) {
-        e = gtk_password_entry_new();
-        gtk_password_entry_set_show_peek_icon(GTK_PASSWORD_ENTRY(e), TRUE);
-    } else e = gtk_entry_new();
+    GtkWidget *e = gtk_entry_new();
     gtk_widget_set_hexpand(e, TRUE);
     gtk_box_append(GTK_BOX(texts), e);
     entry_set_text(e, text);
+    if (password) {   // hidden; the eye sits beside the field (with ✓ / copy), not inside it
+        gtk_entry_set_visibility(GTK_ENTRY(e), FALSE);
+        gtk_entry_set_input_purpose(GTK_ENTRY(e), GTK_INPUT_PURPOSE_PASSWORD);
+        GtkWidget *eye = icon_btn("view-reveal-symbolic", "Show password");
+        g_signal_connect(eye, "clicked", G_CALLBACK(entry_peek_clicked), e);
+        row_suffix(row, eye);
+    }
     if (apply) {
         GtkWidget *ok = icon_btn("object-select-symbolic", "Apply");
         gtk_widget_add_css_class(ok, "hm-apply");

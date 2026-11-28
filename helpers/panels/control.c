@@ -232,6 +232,25 @@ static void player_call(const char *method) {
 static void on_media(GtkButton *b, gpointer m) { (void)b; player_call(m); }
 
 // ---- notifications
+// Tallest the list may be so the whole panel stays on screen: the monitor height less the bar's zone, the
+// gaps above and below the popup, and everything else in the panel (measured, so media showing counts).
+#define CC_BAR_ZONE 64   // waybar height 45 + margin 4 + its borders and Hyprland's gap
+static int cc_list_cap(void) {
+    GdkMonitor *mon = LS ? gtk_layer_get_monitor(GTK_WINDOW(ccp.win)) : NULL;
+    if (!mon) return 560;
+    GdkRectangle geo;
+    gdk_monitor_get_geometry(mon, &geo);
+    int used = 0, n = 0, nat;
+    for (GtkWidget *c = gtk_widget_get_first_child(ccp.body); c; c = gtk_widget_get_next_sibling(c)) {
+        if (c == CC.scroll || !gtk_widget_get_visible(c)) continue;
+        gtk_widget_measure(c, GTK_ORIENTATION_VERTICAL, ccp.width, NULL, &nat, NULL, NULL);
+        used += nat;
+        n++;
+    }
+    used += n * gtk_box_get_spacing(GTK_BOX(ccp.body)) + 2 * 12 + 4;   // spacing, .panel.cc padding, border
+    return MAX(120, geo.height - CC_BAR_ZONE - 2 * POPUP_TOP - used);
+}
+
 static void cc_list_build(void) {
     CC.rebuild = 0;
     GtkWidget *c;
@@ -248,7 +267,13 @@ static void cc_list_build(void) {
         gtk_box_append(GTK_BOX(CC.list), notif_card(g_ptr_array_index(NT.list, i), TRUE));
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(CC.scroll), GTK_POLICY_NEVER,
                                    CC.expanded ? GTK_POLICY_AUTOMATIC : GTK_POLICY_NEVER);
-    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(CC.scroll), CC.expanded ? 560 : 400);
+    int cap = cc_list_cap();
+    gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(CC.scroll), CC.expanded ? cap : MIN(400, cap));
+    // a scrollbar only when the cards overflow; then they step aside so it never covers their edge
+    int list_h;
+    gtk_widget_measure(CC.list, GTK_ORIENTATION_VERTICAL, ccp.width, NULL, &list_h, NULL, NULL);
+    if (CC.expanded && list_h > cap) gtk_widget_add_css_class(CC.scroll, "scrolling");
+    else gtk_widget_remove_css_class(CC.scroll, "scrolling");
 }
 
 static gboolean cc_list_later(gpointer d) { (void)d; cc_list_build(); return G_SOURCE_REMOVE; }
@@ -376,6 +401,7 @@ static void cc_build(Panel *p, GtkWidget *body) {
     gtk_box_append(GTK_BOX(body), CC.head);
     CC.list = VBOX(8, "cc-list");
     CC.scroll = gtk_scrolled_window_new();
+    gtk_widget_add_css_class(CC.scroll, "notif-scroll");
     gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(CC.scroll), TRUE);
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(CC.scroll), CC.list);
     gtk_box_append(GTK_BOX(body), CC.scroll);

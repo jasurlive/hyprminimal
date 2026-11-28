@@ -150,6 +150,7 @@ window.hyprminimal-notifications, window.hyprminimal-osd { background: transpare
 .panel.cc .cc-list .summary { font-size: 14px; }
 .panel.cc .cc-list .body { font-size: 13px; }
 .panel.cc .cc-list button.notif-action { border-radius: 8px; }
+.panel.cc .notif-scroll.scrolling .cc-list { margin-right: 10px; }   /* the scrollbar gets its own lane */
 .panel.cc scrollbar, .panel.cc scrollbar trough { background: none; border: none; box-shadow: none; }
 .panel.cc scrollbar slider { min-width: 4px; min-height: 24px; margin: 0; border: none; border-radius: 4px; background: rgba(75, 81, 122, 0.8); }
 
@@ -250,6 +251,8 @@ window.hm-settings button.destructive { background: transparent; color: #f7768e;
 window.hm-settings button.destructive:hover { background-image: none; background: #f7768e; color: #1f2335; border-color: #f7768e; }
 window.hm-settings button.pill { border-radius: 999px; padding: 5px 18px; min-width: 64px; font-weight: 600; }
 window.hm-settings button.flat.hm-apply { color: #7a88cf; }
+/* icon buttons beside a titled field (eye, ✓, copy): as tall as the field, so all sit on one centred line */
+window.hm-settings row.hm-entry-row button.flat { min-height: 24px; min-width: 20px; padding: 5px 8px; }
 window.hm-settings button.recording { background: #d7729f; color: #1f2335; }
 window.hm-settings button.hm-scan:disabled { color: #7a88cf; opacity: 1; font-weight: 800; }
 window.hm-settings switch { background: #2c314a; border: 1px solid #4b517a; border-radius: 999px; min-width: 46px; min-height: 24px; }
